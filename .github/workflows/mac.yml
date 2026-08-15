@@ -11,7 +11,7 @@ jobs:
         env:
           VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
         run: |
-          echo "runner:$VNC_PASSWORD" | sudo chpasswd
+          sudo dscl . -passwd /Users/runner "$VNC_PASSWORD"
 
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate -configure -access -on \
