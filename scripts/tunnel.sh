@@ -46,6 +46,9 @@ cloudflared tunnel \
   --edge-ip-version 4 \
   --no-chunked-encoding \
   --http-host-header 127.0.0.1:6080 \
+  --heartbeat-interval 5s \
+  --retries 5 \
+  --grace-period 30s \
   --logfile /tmp/cloudflared.log \
   >/tmp/cloudflared.stdout 2>&1 &
 

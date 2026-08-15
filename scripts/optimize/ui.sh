@@ -80,19 +80,54 @@ data = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR
 with open("/tmp/black.png", "wb") as f:
     f.write(data)
 ' 2>/dev/null || true
-chmod 644 /tmp/black.png 2>/dev/null || true
+chmod 777 /tmp/black.png 2>/dev/null || true
+cp /tmp/black.png /Users/Shared/black.png 2>/dev/null || true
+chmod 777 /Users/Shared/black.png 2>/dev/null || true
 
-# Apply wallpaper and dark mode via AppleScript
+# Apply wallpaper and dark mode via native Swift AppKit and launchctl context
 echo "- Setting wallpaper and interface style"
-osascript -e 'tell application "Finder" to set desktop picture to POSIX file "/tmp/black.png"' 2>/dev/null || true
-osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' 2>/dev/null || true
 
-if [[ -d "$TARGET_HOME" ]]; then
-  sudo -u "$TARGET_USER" osascript -e 'tell application "Finder" to set desktop picture to POSIX file "/tmp/black.png"' 2>/dev/null || true
-  sudo -u "$TARGET_USER" osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' 2>/dev/null || true
+CONSOLE_USER="$(stat -f '%Su' /dev/console 2>/dev/null || echo "runner")"
+CONSOLE_UID="$(id -u "$CONSOLE_USER" 2>/dev/null || echo "501")"
+TARGET_UID="$(id -u "$TARGET_USER" 2>/dev/null || echo "502")"
+
+cat << 'SWIFTEOF' > /tmp/set_wallpaper.swift
+import AppKit
+
+let path = "/Users/Shared/black.png"
+let url = URL(fileURLWithPath: path)
+
+for screen in NSScreen.screens {
+    do {
+        try NSWorkspace.shared.setDesktopImageURL(url, for: screen, options: [
+            NSWorkspace.DesktopImageOptionKey.imageScaling: NSImageScaling.scaleAxesIndependently.rawValue,
+            NSWorkspace.DesktopImageOptionKey.allowClipping: false
+        ])
+        print("* Wallpaper applied to screen: \(screen)")
+    } catch {
+        print("! Wallpaper error: \(error)")
+    }
+}
+SWIFTEOF
+
+# Run Swift AppKit wallpaper setter in console user GUI context
+if [[ -n "$CONSOLE_UID" && "$CONSOLE_UID" != "0" ]]; then
+  launchctl asuser "$CONSOLE_UID" sudo -u "$CONSOLE_USER" swift /tmp/set_wallpaper.swift 2>/dev/null || true
+  launchctl asuser "$CONSOLE_UID" sudo -u "$CONSOLE_USER" osascript -e 'tell application "System Events" to tell every desktop to set picture to POSIX file "/Users/Shared/black.png"' 2>/dev/null || true
+  launchctl asuser "$CONSOLE_UID" sudo -u "$CONSOLE_USER" osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' 2>/dev/null || true
 fi
 
-# Restart Dock and Finder to apply changes immediately
+if [[ -n "$TARGET_UID" && "$TARGET_UID" != "0" && "$TARGET_UID" != "$CONSOLE_UID" ]]; then
+  launchctl asuser "$TARGET_UID" sudo -u "$TARGET_USER" swift /tmp/set_wallpaper.swift 2>/dev/null || true
+  launchctl asuser "$TARGET_UID" sudo -u "$TARGET_USER" osascript -e 'tell application "System Events" to tell every desktop to set picture to POSIX file "/Users/Shared/black.png"' 2>/dev/null || true
+  launchctl asuser "$TARGET_UID" sudo -u "$TARGET_USER" osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' 2>/dev/null || true
+fi
+
+# Fallbacks
+osascript -e 'tell application "Finder" to set desktop picture to POSIX file "/Users/Shared/black.png"' 2>/dev/null || true
+osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' 2>/dev/null || true
+
+# Force wallpaper daemon and Dock reload
+killall WallpaperAgent 2>/dev/null || true
 killall Dock 2>/dev/null || true
-killall Finder 2>/dev/null || true
 

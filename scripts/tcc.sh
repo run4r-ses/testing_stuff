@@ -42,6 +42,8 @@ patch_tcc() {
     "kTCCServiceAccessibility"
     "kTCCServicePostEvent"
     "kTCCServiceListenEvent"
+    "kTCCServiceAppleEvents"
+    "kTCCServiceSystemPolicyAllFiles"
   )
 
   local CLIENTS_BUNDLE=(

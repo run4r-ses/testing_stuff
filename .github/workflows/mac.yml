@@ -22,8 +22,8 @@ jobs:
           echo "- Installing cloudflared and displayplacer"
           brew install cloudflared displayplacer
 
-          echo "- Installing numpy for websockify"
-          pip3 install --break-system-packages numpy 2>/dev/null || pip3 install numpy 2>/dev/null || true
+          echo "- Installing websockify and numpy"
+          pip3 install --break-system-packages websockify numpy 2>/dev/null || pip3 install websockify numpy 2>/dev/null || true
 
           echo "- Downloading noVNC and Websockify"
           git clone --depth 1 https://github.com/novnc/noVNC.git /tmp/novnc
