@@ -5,25 +5,38 @@ on:
 
 jobs:
   macos-web-vnc:
-    runs-on: macos-latest
+    runs-on: macos-14 # Or macos-latest
     steps:
-      - name: Configure macOS Screen Sharing
+      - name: Configure macOS Screen Sharing & Passwords
         env:
           VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
         run: |
-          # Use up to 8 chars so both VNC and macOS user share the exact same password
-          PASS="${VNC_PASSWORD:0:8}"
+          # 1. Truncate password to 8 characters and pad to 8 bytes
+          RAW_PASS="${VNC_PASSWORD:0:8}"
+          PADDED_PASS=$(printf "%-8s" "$RAW_PASS")
 
-          # Set user password
-          printf "%s\n%s\n" "$PASS" "$PASS" | sudo passwd runner
+          # 2. Set 'runner' user password non-interactively via expect
+          /usr/bin/expect <<EOF
+          spawn sudo passwd runner
+          expect "New password:"
+          send "$RAW_PASS\r"
+          expect "Retype new password:"
+          send "$RAW_PASS\r"
+          expect eof
+          EOF
 
-          # Enable VNC Remote Desktop
+          # 3. Write VNC legacy password directly (bypassing broken kickstart -setvncpw)
+          # Uses Apple's standard DES key: 5A7B4E765647624A
+          ENC_HEX=$(echo -n "$PADDED_PASS" | openssl enc -des-ecb -K 5A7B4E765647624A -nopad 2>/dev/null | xxd -p -c 256)
+          echo "$ENC_HEX" | sudo tee /Library/Preferences/com.apple.VNCSettings.txt > /dev/null
+          sudo chmod 600 /Library/Preferences/com.apple.VNCSettings.txt
+
+          # 4. Activate ARD / Screen Sharing daemon with full permissions
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate -configure -access -on \
             -allowAccessFor -allUsers \
             -privs -all \
             -clientopts -setvnclegacy -vnclegacy yes \
-            -clientopts -setvncpw -vncpw "$PASS" \
             -restart -agent
 
       - name: Install noVNC and Dependencies
@@ -34,7 +47,10 @@ jobs:
 
       - name: Launch noVNC Bridge & Cloudflare Tunnel
         run: |
+          # Start noVNC proxying 5900 -> 6080
           /tmp/novnc/utils/novnc_proxy --vnc localhost:5900 --listen 6080 > /tmp/novnc.log 2>&1 &
+
+          # Start Cloudflare tunnel
           cloudflared tunnel --url http://localhost:6080 --logfile /tmp/cloudflared.log &
 
           sleep 8
@@ -42,8 +58,9 @@ jobs:
           TUNNEL_URL=$(grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' /tmp/cloudflared.log | head -n 1)
 
           echo "================================================================="
-          echo "Open this link in your browser:"
+          echo "Open this URL in your browser:"
           echo "$TUNNEL_URL/vnc.html?autoconnect=true"
+          echo "-----------------------------------------------------------------"
           echo "Password: (First 8 characters of your VNC_PASSWORD secret)"
           echo "================================================================="
 
