@@ -11,7 +11,7 @@ PASSWORD="$VNC_PASSWORD"
 echo "* Starting noVNC proxy"
 
 # Clean previous logs if any
-touch /tmp/novnc.log /tmp/cloudflared.log
+touch /tmp/novnc.log /tmp/tunnel.log
 
 /tmp/novnc/utils/novnc_proxy \
   --vnc 127.0.0.1:5900 \
@@ -38,74 +38,55 @@ fi
 
 echo "* noVNC is listening on http://127.0.0.1:6080"
 
-echo "* Starting Cloudflare Tunnel (HTTP/2 mode)"
+echo "* Starting Serveo tunnel"
 
-# --protocol http2:      Force HTTP/2 — far more stable for WebSocket traffic
-#                         than QUIC which drops with "no recent network activity"
-# --post-quantum false:   Disabling post-quantum forces HTTP/2 (PQ requires QUIC)
-# --ha-connections 4:     4 redundant connections — if one drops, others keep serving
-# --heartbeat-interval:   5s keepalive to detect dead connections fast
-# --heartbeat-count 5:    Mark connection dead after 5 missed heartbeats
-# --grace-period 30s:     Allow 30s for reconnection before giving up
-# --retries 10:           More retries for transient failures
-#
-# REMOVED: --no-chunked-encoding (breaks HTTP/2 stream multiplexing, stalls
-#          WebSocket frames for noVNC)
+# Serveo uses plain SSH remote port forwarding — no client to install.
+# -R 80:localhost:6080  → forward Serveo's port 80 to our local noVNC
+# -o StrictHostKeyChecking=no  → auto-accept host key
+# -o ServerAliveInterval=10   → SSH keepalive every 10s (prevents idle drop)
+# -o ServerAliveCountMax=3    → disconnect after 3 missed keepalives (30s)
+# -o ExitOnForwardFailure=yes → exit immediately if port forwarding fails
 
-cloudflared tunnel \
-  --url http://127.0.0.1:6080 \
-  --protocol http2 \
-  --post-quantum false \
-  --ha-connections 4 \
-  --edge-ip-version 4 \
-  --http-host-header 127.0.0.1:6080 \
-  --heartbeat-interval 5s \
-  --heartbeat-count 5 \
-  --retries 10 \
-  --grace-period 30s \
-  --logfile /tmp/cloudflared.log \
-  >/tmp/cloudflared.stdout 2>&1 &
+ssh \
+  -o StrictHostKeyChecking=no \
+  -o ServerAliveInterval=10 \
+  -o ServerAliveCountMax=3 \
+  -o ExitOnForwardFailure=yes \
+  -R 80:localhost:6080 \
+  serveo.net \
+  >/tmp/tunnel.log 2>&1 &
 
-CLOUDFLARED_PID=$!
-echo "$CLOUDFLARED_PID" > /tmp/cloudflared.pid
+TUNNEL_PID=$!
+echo "$TUNNEL_PID" > /tmp/tunnel.pid
 TUNNEL_URL=""
 
 for _ in {1..30}; do
   TUNNEL_URL="$(
-    {
-      cat /tmp/cloudflared.log 2>/dev/null || true
-      cat /tmp/cloudflared.stdout 2>/dev/null || true
-    } |
-    grep -Eo 'https://[A-Za-z0-9.-]+\.trycloudflare\.com' |
+    grep -Eo 'https?://[A-Za-z0-9.-]+\.serveo\.net' /tmp/tunnel.log 2>/dev/null |
     head -n 1 || true
   )"
 
   if [[ -n "$TUNNEL_URL" ]]; then
     break
   fi
+
+  # Check if ssh process died early
+  if ! kill -0 "$TUNNEL_PID" 2>/dev/null; then
+    echo "! Serveo SSH tunnel process died during startup"
+    echo "--- tunnel.log ---"
+    cat /tmp/tunnel.log || true
+    exit 1
+  fi
+
   sleep 1
 done
 
 if [[ -z "$TUNNEL_URL" ]]; then
-  echo "! Could not obtain Cloudflare tunnel URL"
-  echo "--- cloudflared.log ---"
-  cat /tmp/cloudflared.log || true
-  echo "--- cloudflared.stdout ---"
-  cat /tmp/cloudflared.stdout || true
+  echo "! Could not obtain Serveo tunnel URL"
+  echo "--- tunnel.log ---"
+  cat /tmp/tunnel.log || true
   exit 1
 fi
-
-# Start a lightweight keepalive that prevents idle timeouts by pinging
-# the local noVNC endpoint every 30s. This keeps the tunnel connections
-# warm even when no user is connected.
-(
-  while true; do
-    curl -sf http://127.0.0.1:6080/ >/dev/null 2>&1 || true
-    sleep 30
-  done
-) &
-KEEPALIVE_PID=$!
-echo "$KEEPALIVE_PID" > /tmp/keepalive.pid
 
 echo
 echo "* macOS web desktop is ready"

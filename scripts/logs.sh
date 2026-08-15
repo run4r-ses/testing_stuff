@@ -4,16 +4,14 @@ set -euo pipefail
 echo "* Streaming live tunnel and noVNC logs"
 
 NOVNC_PID="$(cat /tmp/novnc.pid 2>/dev/null || echo "")"
-CLOUDFLARED_PID="$(cat /tmp/cloudflared.pid 2>/dev/null || echo "")"
-KEEPALIVE_PID="$(cat /tmp/keepalive.pid 2>/dev/null || echo "")"
+TUNNEL_PID="$(cat /tmp/tunnel.pid 2>/dev/null || echo "")"
 
 # Start following all logs live in the background
-tail -n +1 -F /tmp/novnc.log /tmp/cloudflared.log /tmp/cloudflared.stdout &
+tail -n +1 -F /tmp/novnc.log /tmp/tunnel.log &
 TAIL_PID=$!
 
 cleanup() {
   kill "$TAIL_PID" 2>/dev/null || true
-  kill "$KEEPALIVE_PID" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
@@ -26,13 +24,12 @@ while true; do
     exit 1
   fi
 
-  if [[ -n "$CLOUDFLARED_PID" ]] && ! kill -0 "$CLOUDFLARED_PID" 2>/dev/null; then
+  if [[ -n "$TUNNEL_PID" ]] && ! kill -0 "$TUNNEL_PID" 2>/dev/null; then
     echo
-    echo "! Cloudflare tunnel process ($CLOUDFLARED_PID) exited unexpectedly"
+    echo "! Serveo tunnel process ($TUNNEL_PID) exited unexpectedly"
     sleep 2
     exit 1
   fi
 
   sleep 2
 done
-
