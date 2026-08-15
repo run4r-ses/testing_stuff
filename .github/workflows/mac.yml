@@ -160,7 +160,50 @@ jobs:
               )
               SELECT
                 'kTCCServiceScreenCapture',
-                'com.apple.screensharing',
+                'com.apple.screensharing.agent',
+                0,
+                2,
+                2,
+                1,
+                NULL,
+                0,
+                'UNUSED',
+                0,
+                $NOW
+              WHERE
+                EXISTS (
+                  SELECT 1
+                  FROM pragma_table_info('access')
+                  WHERE name='service'
+                )
+                AND EXISTS (
+                  SELECT 1
+                  FROM pragma_table_info('access')
+                  WHERE name='client'
+                )
+                AND EXISTS (
+                  SELECT 1
+                  FROM pragma_table_info('access')
+                  WHERE name='auth_value'
+                );
+
+              INSERT OR REPLACE INTO access
+              (
+                service,
+                client,
+                client_type,
+                auth_value,
+                auth_reason,
+                auth_version,
+                policy_id,
+                indirect_object_identifier_type,
+                indirect_object_identifier,
+                flags,
+                last_modified
+              )
+              SELECT
+                'kTCCServicePostEvent',
+                'com.apple.screensharing.agent',
                 0,
                 2,
                 2,
@@ -187,7 +230,6 @@ jobs:
                   WHERE name='auth_value'
                 );
             "
-
             if sudo sqlite3 "$DB" "$SQL" 2>&1; then
               echo "SQLite accepted the ScreenCapture modification."
             else
