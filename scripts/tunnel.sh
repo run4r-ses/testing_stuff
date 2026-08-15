@@ -41,6 +41,7 @@ echo "* Starting Cloudflare Quick Tunnel"
 
 cloudflared tunnel \
   --url http://127.0.0.1:6080 \
+  --protocol http2 \
   --ha-connections 4 \
   --edge-ip-version 4 \
   --logfile /tmp/cloudflared.log \
