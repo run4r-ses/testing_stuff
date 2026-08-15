@@ -1,4 +1,4 @@
-name: macOS GUI in Browser - runneradmin
+name: macOS GUI in Browser (x11vnc + noVNC)
 
 on:
   workflow_dispatch:
@@ -6,505 +6,111 @@ on:
 jobs:
   macos-web-vnc:
     runs-on: macos-latest
-    timeout-minutes: 370
 
     steps:
-      - name: Create runneradmin and establish GUI session
+      - name: Install x11vnc, noVNC and Cloudflare
         shell: bash
         run: |
           set -euo pipefail
 
-          USERNAME="runneradmin"
-          PASSWORD="meow"
-          GUI_UID="502"
+          echo "Installing dependencies..."
 
-          echo "============================================================"
-          echo "SYSTEM"
-          echo "============================================================"
+          brew install x11vnc cloudflared
 
-          sw_vers
-          uname -a
+          rm -rf /tmp/novnc
 
-          echo
-          echo "============================================================"
-          echo "Creating $USERNAME"
-          echo "============================================================"
+          git clone --depth 1 \
+            https://github.com/novnc/noVNC.git \
+            /tmp/novnc
 
-          if id "$USERNAME" >/dev/null 2>&1; then
-            echo "$USERNAME already exists"
-            sudo dscl . -passwd "/Users/$USERNAME" "$PASSWORD"
-          else
-            sudo dscl . -create "/Users/$USERNAME"
-            sudo dscl . -create "/Users/$USERNAME" UserShell /bin/bash
-            sudo dscl . -create "/Users/$USERNAME" RealName "Runner Admin"
-            sudo dscl . -create "/Users/$USERNAME" UniqueID "$GUI_UID"
-            sudo dscl . -create "/Users/$USERNAME" PrimaryGroupID 20
-            sudo dscl . -create "/Users/$USERNAME" NFSHomeDirectory "/Users/$USERNAME"
-            sudo dscl . -passwd "/Users/$USERNAME" "$PASSWORD"
-
-            sudo createhomedir \
-              -c \
-              -u "$USERNAME" \
-              >/dev/null 2>&1 || true
-          fi
-
-          sudo dseditgroup \
-            -o edit \
-            -a "$USERNAME" \
-            -t user \
-            admin
-
-          sudo chown -R \
-            "$USERNAME":staff \
-            "/Users/$USERNAME"
+          git clone --depth 1 \
+            https://github.com/novnc/websockify \
+            /tmp/novnc/utils/websockify
 
           echo
-          echo "Account:"
-          dscl . -read "/Users/$USERNAME" \
-            UserShell \
-            RealName \
-            UniqueID \
-            PrimaryGroupID \
-            NFSHomeDirectory
+          echo "Versions:"
+          x11vnc -version || true
+          cloudflared --version
+          python3 --version
 
-          echo
-          echo "Groups:"
-          id "$USERNAME"
+      - name: Start x11vnc
+        shell: bash
+        run: |
+          set -euo pipefail
 
-          echo
           echo "============================================================"
-          echo "Configuring loginwindow"
-          echo "============================================================"
-
-          #
-          # Configure automatic login for runneradmin.
-          #
-          # This is deliberately done before restarting loginwindow.
-          #
-          sudo defaults write \
-            /Library/Preferences/com.apple.loginwindow \
-            autoLoginUser \
-            "$USERNAME"
-
-          sudo defaults read \
-            /Library/Preferences/com.apple.loginwindow \
-            autoLoginUser
-
-          echo
-          echo "============================================================"
-          echo "Current GUI session"
-          echo "============================================================"
-
-          echo "Console user:"
-          stat -f '%Su' /dev/console
-
-          echo
-          echo "Logged-in users:"
-          who
-
-          echo
-          echo "GUI processes:"
-          ps aux | grep -E \
-            '[F]inder.app|[D]ock.app|[S]ystemUIServer.app' \
-            || true
-
-          echo
-          echo "============================================================"
-          echo "Requesting runneradmin GUI login"
-          echo "============================================================"
-
-          #
-          # CGSession was removed from the location used by older
-          # macOS VNC recipes, so do not depend on it.
-          #
-          # Restart loginwindow and allow it to establish the
-          # configured automatic-login account.
-          #
-
-          sudo killall loginwindow 2>/dev/null || true
-
-          echo "Waiting for loginwindow..."
-          sleep 3
-
-          #
-          # Give loginwindow enough time to establish the Aqua session.
-          #
-          CONSOLE_USER=""
-
-          for i in {1..30}; do
-            CONSOLE_USER="$(stat -f '%Su' /dev/console)"
-
-            echo "[$i/30] console user: $CONSOLE_USER"
-
-            if [[ "$CONSOLE_USER" == "$USERNAME" ]]; then
-              break
-            fi
-
-            sleep 2
-          done
-
-          echo
-          echo "============================================================"
-          echo "GUI SESSION RESULT"
+          echo "Starting x11vnc"
           echo "============================================================"
 
           CONSOLE_USER="$(stat -f '%Su' /dev/console)"
 
+          if [[ -z "$CONSOLE_USER" || "$CONSOLE_USER" == "root" || "$CONSOLE_USER" == "loginwindow" ]]; then
+            echo "No usable GUI console user."
+            exit 1
+          fi
+
           echo "Console user: $CONSOLE_USER"
 
-          echo
-          echo "Logged-in users:"
-          who
+          mkdir -p /tmp/x11vnc
 
-          echo
-          echo "WindowServer:"
-          ps aux | grep -E '[W]indowServer' || true
-
-          echo
-          echo "Finder:"
-          ps aux | grep -E '[F]inder.app' || true
-
-          echo
-          echo "Dock:"
-          ps aux | grep -E '[D]ock.app' || true
-
-          echo
-          echo "SystemUIServer:"
-          ps aux | grep -E '[S]ystemUIServer.app' || true
-
+          # x11vnc has native macOS Quartz support.  On macOS the
+          # special "console" display tells it to use the native
+          # console framebuffer rather than an X11 display.
           #
-          # This is the critical assertion.
+          # -nopw is intentional for this first test. The VNC server
+          # is bound to localhost and is never exposed directly.
           #
-          if [[ "$CONSOLE_USER" != "$USERNAME" ]]; then
-            echo
-            echo "============================================================"
-            echo "ERROR: runneradmin did not become the console user"
-            echo "============================================================"
-            echo
-            echo "Expected:"
-            echo "  $USERNAME"
-            echo
-            echo "Actual:"
-            echo "  $CONSOLE_USER"
-            echo
-            echo "Refusing to start VNC."
-            echo "A VNC connection to this machine would otherwise"
-            echo "capture the wrong GUI session."
-            exit 1
-          fi
+          # Cloudflare only exposes the noVNC HTTP/WebSocket endpoint.
+          /opt/homebrew/bin/x11vnc \
+            -display console \
+            -rfbport 5900 \
+            -localhost \
+            -forever \
+            -shared \
+            -nopw \
+            -noxdamage \
+            > /tmp/x11vnc/x11vnc.log 2>&1 &
+
+          X11VNC_PID=$!
+          echo "$X11VNC_PID" > /tmp/x11vnc/x11vnc.pid
+
+          echo "x11vnc PID: $X11VNC_PID"
 
           echo
-          echo "runneradmin is the active console user."
+          echo "Waiting for VNC server..."
 
-          #
-          # Make sure the user actually has an Aqua desktop.
-          #
-          if ! ps aux | grep -E \
-            '[F]inder.app/Contents/MacOS/Finder' |
-            grep -q "$USERNAME"; then
+          for i in {1..30}; do
+            if nc -z 127.0.0.1 5900 2>/dev/null; then
+              echo "VNC server is listening on 127.0.0.1:5900"
+              break
+            fi
 
-            echo
-            echo "ERROR: runneradmin is console owner but Finder"
-            echo "is not running under runneradmin."
-
-            exit 1
-          fi
-
-          echo
-          echo "runneradmin GUI session is active."
-
-      - name: Apply Screen Recording TCC experiment
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          USERNAME="runneradmin"
-
-          echo "============================================================"
-          echo "TCC Screen Recording experiment"
-          echo "============================================================"
-
-          TCC_SYSTEM="/Library/Application Support/com.apple.TCC/TCC.db"
-          TCC_USER="/Users/$USERNAME/Library/Application Support/com.apple.TCC/TCC.db"
-
-          patch_tcc() {
-            local DB="$1"
-
-            if [[ ! -f "$DB" ]]; then
+            if ! kill -0 "$X11VNC_PID" 2>/dev/null; then
               echo
-              echo "TCC database not present:"
-              echo "$DB"
-              return 0
+              echo "x11vnc exited unexpectedly:"
+              cat /tmp/x11vnc/x11vnc.log
+              exit 1
             fi
 
+            sleep 1
+          done
+
+          if ! nc -z 127.0.0.1 5900 2>/dev/null; then
+            echo "x11vnc never opened port 5900."
             echo
-            echo "TCC database:"
-            echo "$DB"
-
-            echo
-            echo "Schema:"
-            sudo sqlite3 "$DB" \
-              "PRAGMA table_info(access);" \
-              || true
-
-            #
-            # Only modify the columns that actually exist in the
-            # current database. This avoids the old:
-            #
-            #   table access has 17 columns but 13 values supplied
-            #
-            # failure.
-            #
-
-            local HAS_AUTH_VALUE
-            HAS_AUTH_VALUE="$(
-              sudo sqlite3 "$DB" \
-                "SELECT COUNT(*)
-                 FROM pragma_table_info('access')
-                 WHERE name='auth_value';"
-            )"
-
-            if [[ "$HAS_AUTH_VALUE" != "1" ]]; then
-              echo "No auth_value column; skipping."
-              return 0
-            fi
-
-            echo
-            echo "Existing ScreenCapture entries:"
-
-            sudo sqlite3 -header -column "$DB" "
-              SELECT
-                service,
-                client,
-                client_type,
-                auth_value,
-                auth_reason,
-                auth_version,
-                flags,
-                last_modified
-              FROM access
-              WHERE service='kTCCServiceScreenCapture';
-            " || true
-
-            echo
-            echo "Applying ScreenCapture grant for com.apple.screensharing..."
-
-            NOW="$(date +%s)"
-
-            sudo sqlite3 "$DB" <<SQL
-          INSERT OR REPLACE INTO access
-          (
-            service,
-            client,
-            client_type,
-            auth_value,
-            auth_reason,
-            auth_version,
-            policy_id,
-            indirect_object_identifier_type,
-            indirect_object_identifier,
-            flags,
-            last_modified
-          )
-          VALUES
-          (
-            'kTCCServiceScreenCapture',
-            'com.apple.screensharing',
-            0,
-            2,
-            2,
-            1,
-            NULL,
-            0,
-            'UNUSED',
-            0,
-            $NOW
-          );
-          SQL
-
-            echo
-            echo "Result:"
-
-            sudo sqlite3 -header -column "$DB" "
-              SELECT
-                service,
-                client,
-                client_type,
-                auth_value,
-                auth_reason,
-                auth_version,
-                flags,
-                last_modified
-              FROM access
-              WHERE
-                service='kTCCServiceScreenCapture'
-                AND client='com.apple.screensharing';
-            " || true
-          }
-
-          patch_tcc "$TCC_SYSTEM"
-          patch_tcc "$TCC_USER"
-
-          echo
-          echo "Restarting tccd..."
-
-          sudo killall -9 tccd 2>/dev/null || true
-
-          sleep 3
-
-      - name: Configure Apple Screen Sharing
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          USERNAME="runneradmin"
-
-          ARD="/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart"
-
-          echo "============================================================"
-          echo "Configuring Apple Remote Management"
-          echo "============================================================"
-
-          sudo "$ARD" \
-            -activate \
-            -configure \
-            -access -on \
-            -users "$USERNAME" \
-            -privs -all \
-            -restart
-
-          sleep 5
-
-          echo
-          echo "Configuring legacy VNC compatibility..."
-
-          sudo "$ARD" \
-            -configure \
-            -clientopts \
-            -setvnclegacy \
-            -vnclegacy yes
-
-          #
-          # The old -setvncpw operation is intentionally NOT used.
-          #
-
-          echo
-          echo "============================================================"
-          echo "Writing legacy VNC password"
-          echo "============================================================"
-
-          PASSWORD="meow"
-
-          VNC_HASH="$(
-            printf '%s\n' "$PASSWORD" |
-            perl -we '
-              BEGIN {
-                @k = unpack "C*", pack "H*",
-                  "1734516E8BA8C5E2FF1C39567390ADCA";
-              }
-
-              $_ = <>;
-              chomp;
-
-              s/^(.{8}).*/$1/;
-
-              @p = unpack "C*", $_;
-
-              foreach (@k) {
-                printf "%02X", $_ ^ (shift @p || 0);
-              }
-
-              print "\n";
-            '
-          )"
-
-          printf '%s\n' "$VNC_HASH" |
-            sudo tee /Library/Preferences/com.apple.VNCSettings.txt \
-            >/dev/null
-
-          sudo chmod 600 \
-            /Library/Preferences/com.apple.VNCSettings.txt
-
-          echo
-          echo "Restarting Remote Management agent..."
-
-          sudo "$ARD" \
-            -restart \
-            -agent \
-            -console
-
-          sleep 10
-
-          echo
-          echo "============================================================"
-          echo "VNC SERVICE"
-          echo "============================================================"
-
-          sudo lsof \
-            -nP \
-            -iTCP:5900 \
-            -sTCP:LISTEN \
-            || true
-
-          if nc -z 127.0.0.1 5900; then
-            echo
-            echo "VNC port 5900 is reachable."
-          else
-            echo
-            echo "ERROR: VNC port 5900 is not reachable."
+            cat /tmp/x11vnc/x11vnc.log
             exit 1
           fi
 
           echo
-          echo "Remote Management processes:"
-
-          ps aux | grep -Ei \
-            '[A]RDAgent|[Ss]creensharingd|[Ss]creensharingAgent|[Vv]NCPrivilegeProxy' \
-            || true
-
-          echo
-          echo "Final console user:"
-          stat -f '%Su' /dev/console
-
-          #
-          # Do not continue if something switched the GUI away from
-          # runneradmin.
-          #
-
-          if [[ "$(stat -f '%Su' /dev/console)" != "$USERNAME" ]]; then
-            echo
-            echo "ERROR: console session changed away from $USERNAME."
-            exit 1
-          fi
-
-      - name: Install noVNC and Cloudflared
-        shell: bash
-        run: |
-          set -euo pipefail
-
           echo "============================================================"
-          echo "Installing noVNC"
+          echo "x11vnc started"
           echo "============================================================"
 
-          rm -rf /tmp/novnc
+          tail -n 40 /tmp/x11vnc/x11vnc.log || true
 
-          git clone \
-            --depth 1 \
-            https://github.com/novnc/noVNC.git \
-            /tmp/novnc
-
-          git clone \
-            --depth 1 \
-            https://github.com/novnc/websockify \
-            /tmp/novnc/utils/websockify
-
-          brew install cloudflared
-
-      - name: Start noVNC and Cloudflare Tunnel
+      - name: Start noVNC
         shell: bash
-        env:
-          VNC_USERNAME: runneradmin
-          VNC_PASSWORD: meow
         run: |
           set -euo pipefail
 
@@ -515,31 +121,39 @@ jobs:
           /tmp/novnc/utils/novnc_proxy \
             --vnc 127.0.0.1:5900 \
             --listen 6080 \
-            >/tmp/novnc.log 2>&1 &
+            > /tmp/novnc.log 2>&1 &
 
           NOVNC_PID=$!
+          echo "$NOVNC_PID" > /tmp/novnc.pid
 
-          sleep 4
+          for i in {1..30}; do
+            if nc -z 127.0.0.1 6080 2>/dev/null; then
+              echo "noVNC is listening on 127.0.0.1:6080"
+              break
+            fi
 
-          if ! kill -0 "$NOVNC_PID" 2>/dev/null; then
-            echo "ERROR: noVNC terminated."
+            if ! kill -0 "$NOVNC_PID" 2>/dev/null; then
+              echo "noVNC exited:"
+              cat /tmp/novnc.log
+              exit 1
+            fi
 
-            cat /tmp/novnc.log || true
+            sleep 1
+          done
 
+          if ! nc -z 127.0.0.1 6080 2>/dev/null; then
+            echo "noVNC never opened port 6080."
+            cat /tmp/novnc.log
             exit 1
           fi
 
-          if ! nc -z 127.0.0.1 6080; then
-            echo "ERROR: noVNC port 6080 is not reachable."
+          cat /tmp/novnc.log
 
-            cat /tmp/novnc.log || true
+      - name: Start Cloudflare Quick Tunnel
+        shell: bash
+        run: |
+          set -euo pipefail
 
-            exit 1
-          fi
-
-          echo "noVNC is listening."
-
-          echo
           echo "============================================================"
           echo "Starting Cloudflare Quick Tunnel"
           echo "============================================================"
@@ -547,37 +161,43 @@ jobs:
           cloudflared tunnel \
             --url http://127.0.0.1:6080 \
             --logfile /tmp/cloudflared.log \
-            >/tmp/cloudflared.stdout 2>&1 &
+            > /tmp/cloudflared.stdout 2>&1 &
 
           CLOUDFLARED_PID=$!
+          echo "$CLOUDFLARED_PID" > /tmp/cloudflared.pid
 
           TUNNEL_URL=""
 
-          for i in {1..30}; do
+          for i in {1..60}; do
             TUNNEL_URL="$(
-              {
-                cat /tmp/cloudflared.log 2>/dev/null || true
-                cat /tmp/cloudflared.stdout 2>/dev/null || true
-              } |
               grep -Eo \
-                'https://[A-Za-z0-9.-]+\.trycloudflare\.com' |
-              head -n 1 ||
-              true
+                'https://[A-Za-z0-9.-]+\.trycloudflare\.com' \
+                /tmp/cloudflared.log \
+                /tmp/cloudflared.stdout \
+                2>/dev/null |
+                head -n 1 ||
+                true
             )"
 
             if [[ -n "$TUNNEL_URL" ]]; then
               break
             fi
 
+            if ! kill -0 "$CLOUDFLARED_PID" 2>/dev/null; then
+              echo "cloudflared exited unexpectedly."
+              cat /tmp/cloudflared.log || true
+              cat /tmp/cloudflared.stdout || true
+              exit 1
+            fi
+
             sleep 1
           done
 
           if [[ -z "$TUNNEL_URL" ]]; then
-            echo "ERROR: Cloudflare tunnel URL not found."
-
+            echo "Could not obtain Cloudflare tunnel URL."
+            echo
             cat /tmp/cloudflared.log || true
             cat /tmp/cloudflared.stdout || true
-
             exit 1
           fi
 
@@ -586,24 +206,20 @@ jobs:
           echo "macOS WEB DESKTOP"
           echo "============================================================"
           echo
-          echo "URL:"
+          echo "Browser:"
+          echo "${TUNNEL_URL}/vnc.html?autoconnect=true"
           echo
-          echo "$TUNNEL_URL/vnc.html?autoconnect=true"
-          echo
-          echo "VNC username: $VNC_USERNAME"
-          echo "VNC password: $VNC_PASSWORD"
-          echo
-          echo "Console user:"
-          stat -f '%Su' /dev/console
+          echo "VNC authentication: DISABLED"
+          echo "VNC server: x11vnc"
+          echo "Display: native macOS console framebuffer"
           echo
           echo "============================================================"
-          echo
-          echo "The job will remain alive while the tunnel is running."
-
-          wait "$CLOUDFLARED_PID"
 
       - name: Keep session alive
-        if: always()
         shell: bash
         run: |
-          sleep 21600
+          set -euo pipefail
+
+          echo "Session will remain active for 4 hours."
+
+          sleep 14400
