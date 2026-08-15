@@ -11,11 +11,11 @@ jobs:
         env:
           VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
         run: |
-          # 1. Prevent virtual display, disk, and system sleep
+          # 1. Prevent display, disk, and system sleep
           sudo pmset -a displaysleep 0 sleep 0 disksleep 0
           caffeinate -d -i -m -u &
 
-          # 2. Create the runneradmin account
+          # 2. Create runneradmin user
           sudo dscl . -create /Users/runneradmin
           sudo dscl . -create /Users/runneradmin UserShell /bin/bash
           sudo dscl . -create /Users/runneradmin RealName "Runner Admin"
@@ -26,21 +26,24 @@ jobs:
           sudo createhomedir -c -u runneradmin > /dev/null 2>&1 || true
           sudo dscl . -append /Groups/admin GroupMembership runneradmin
 
-          # 3. Configure Auto-Login for runneradmin (Generates macOS kcpassword structure)
-          python3 -c "
+          # 3. Generate kcpassword and configure auto-login
+          python3 -c '
           import sys
           passwd = sys.argv[1]
           key = [125, 137, 82, 35, 210, 188, 221, 234, 163, 185, 31]
           pad = 12 - (len(passwd) % 12) if (len(passwd) % 12) != 0 else 0
-          raw = passwd.encode('utf-8') + (b'\x00' * pad)
+          raw = passwd.encode("utf-8") + (b"\x00" * pad)
           encoded = bytearray([b ^ key[i % len(key)] for i, b in enumerate(raw)])
-          with open('/etc/kcpassword', 'wb') as f:
+          with open("/tmp/kcpassword", "wb") as f:
               f.write(encoded)
-          " "$VNC_PASSWORD"
+          ' "$VNC_PASSWORD"
+
+          sudo mv /tmp/kcpassword /etc/kcpassword
           sudo chmod 600 /etc/kcpassword
+          sudo chown root:wheel /etc/kcpassword
           sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser "runneradmin"
 
-          # 4. Configure Apple Remote Management & Legacy VNC authentication
+          # 4. Configure Apple Remote Management & legacy VNC auth
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate -configure -allowAccessFor -allUsers -privs -all
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
@@ -55,11 +58,11 @@ jobs:
           ' | sudo tee /Library/Preferences/com.apple.VNCSettings.txt > /dev/null
           sudo chmod 600 /Library/Preferences/com.apple.VNCSettings.txt
 
-          # 5. Restart loginwindow to trigger auto-login and boot the graphical session
+          # 5. Restart loginwindow to trigger auto-login into runneradmin desktop
           sudo killall -9 loginwindow || true
           sleep 6
 
-          # 6. Bind ARD to the active console desktop session
+          # 6. Bind ARD to the active console session
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart -agent -console
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate
 
@@ -71,7 +74,7 @@ jobs:
           # 8. Start noVNC bridge
           /tmp/novnc/utils/novnc_proxy --vnc 127.0.0.1:5900 --listen 6080 --web /tmp/novnc > /tmp/novnc.log 2>&1 &
 
-          # 9. Start Cloudflare Tunnel and wait for DNS registration
+          # 9. Start Cloudflare Tunnel and retrieve domain
           cloudflared tunnel --url http://127.0.0.1:6080 --logfile /tmp/cloudflared.log > /dev/null 2>&1 &
 
           echo "Establishing Cloudflare Tunnel..."
@@ -92,7 +95,7 @@ jobs:
             exit 1
           fi
 
-          # Allow edge DNS to propagate
+          # Wait for DNS propagation
           sleep 4
 
           echo "================================================================="
@@ -102,5 +105,5 @@ jobs:
           echo "Password: (Your configured VNC_PASSWORD secret)"
           echo "================================================================="
 
-          # 10. Keep the single step running
-          wait
+          # 10. Keep session alive
+          sleep 14400
