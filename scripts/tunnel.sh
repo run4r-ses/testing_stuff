@@ -16,6 +16,7 @@ touch /tmp/novnc.log /tmp/cloudflared.log
 /tmp/novnc/utils/novnc_proxy \
   --vnc 127.0.0.1:5900 \
   --listen 6080 \
+  --heartbeat 10 \
   >/tmp/novnc.log 2>&1 &
 
 NOVNC_PID=$!
@@ -40,6 +41,8 @@ echo "* Starting Cloudflare Quick Tunnel"
 
 cloudflared tunnel \
   --url http://127.0.0.1:6080 \
+  --ha-connections 4 \
+  --edge-ip-version 4 \
   --logfile /tmp/cloudflared.log \
   >/tmp/cloudflared.stdout 2>&1 &
 
@@ -78,4 +81,10 @@ echo "*"
 echo "* Web URL:      $TUNNEL_URL/vnc.html?autoconnect=true"
 echo "* VNC username: $USERNAME"
 echo "* Console user: $(stat -f '%Su' /dev/console 2>/dev/null || whoami)"
+echo "*"
+echo "* IMPORTANT NOTE!!!"
+echo "* Using GitHub Actions as interactive remote desktops unless"
+echo "* for debugging purposes is strictly forbidden by the Acceptable"
+echo "* Use Policies. You must fully comply with GitHub's terms while"
+echo "* using this script. YOU ARE FULLY RESPONSIBLE FOR YOUR ACTIONS!"
 echo
