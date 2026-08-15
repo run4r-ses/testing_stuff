@@ -1,4 +1,4 @@
-name: macOS connect
+name: macOS GUI in Browser (noVNC)
 
 on:
   workflow_dispatch:
@@ -7,32 +7,46 @@ jobs:
   macos-web-vnc:
     runs-on: macos-latest
     steps:
-      - name: Configure VNC
+      - name: Configure macOS Screen Sharing
         env:
           VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
         run: |
+          # Use up to 8 chars so both VNC and macOS user share the exact same password
+          PASS="${VNC_PASSWORD:0:8}"
+
+          # Set user password
+          printf "%s\n%s\n" "$PASS" "$PASS" | sudo passwd runner
+
+          # Enable VNC Remote Desktop
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate -configure -access -on \
+            -allowAccessFor -allUsers \
+            -privs -all \
             -clientopts -setvnclegacy -vnclegacy yes \
-            -clientopts -setvncpw -vncpw "$VNC_PASSWORD" \
-            -restart -agent -privs -all
+            -clientopts -setvncpw -vncpw "$PASS" \
+            -restart -agent
 
-      - name: Install dependencies
+      - name: Install noVNC and Dependencies
         run: |
           git clone --depth 1 https://github.com/novnc/noVNC.git /tmp/novnc
           git clone --depth 1 https://github.com/novnc/websockify /tmp/novnc/utils/websockify
-
           brew install cloudflared
 
-      - name: Launch bridge
+      - name: Launch noVNC Bridge & Cloudflare Tunnel
         run: |
           /tmp/novnc/utils/novnc_proxy --vnc localhost:5900 --listen 6080 > /tmp/novnc.log 2>&1 &
           cloudflared tunnel --url http://localhost:6080 --logfile /tmp/cloudflared.log &
 
           sleep 8
+
           TUNNEL_URL=$(grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' /tmp/cloudflared.log | head -n 1)
 
+          echo "================================================================="
+          echo "Open this link in your browser:"
           echo "$TUNNEL_URL/vnc.html?autoconnect=true"
+          echo "Password: (First 8 characters of your VNC_PASSWORD secret)"
+          echo "================================================================="
 
-      - name: Keep runner alive
-        run: sleep 14400
+      - name: Keep Session Active
+        run: |
+          sleep 14400
