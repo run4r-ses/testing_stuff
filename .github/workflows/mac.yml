@@ -48,3 +48,7 @@ jobs:
       - name: Start VNC tunnel
         shell: bash
         run: bash scripts/tunnel.sh
+
+      - name: Stream tunnel logs
+        shell: bash
+        run: bash scripts/logs.sh

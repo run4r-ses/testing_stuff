@@ -10,12 +10,16 @@ PASSWORD="$VNC_PASSWORD"
 
 echo "* Starting noVNC proxy"
 
+# Clean previous logs if any
+touch /tmp/novnc.log /tmp/cloudflared.log
+
 /tmp/novnc/utils/novnc_proxy \
   --vnc 127.0.0.1:5900 \
   --listen 6080 \
   >/tmp/novnc.log 2>&1 &
 
 NOVNC_PID=$!
+echo "$NOVNC_PID" > /tmp/novnc.pid
 sleep 4
 
 if ! kill -0 "$NOVNC_PID" 2>/dev/null; then
@@ -40,6 +44,7 @@ cloudflared tunnel \
   >/tmp/cloudflared.stdout 2>&1 &
 
 CLOUDFLARED_PID=$!
+echo "$CLOUDFLARED_PID" > /tmp/cloudflared.pid
 TUNNEL_URL=""
 
 for _ in {1..30}; do
@@ -67,20 +72,10 @@ if [[ -z "$TUNNEL_URL" ]]; then
   exit 1
 fi
 
-
+echo
 echo "* macOS web desktop is ready"
 echo "*" 
 echo "* Web URL:      $TUNNEL_URL/vnc.html?autoconnect=true"
 echo "* VNC username: $USERNAME"
 echo "* Console user: $(stat -f '%Su' /dev/console 2>/dev/null || whoami)"
-
-echo "--- noVNC log tail ---"
-tail -n 15 /tmp/novnc.log || true
-
 echo
-echo "--- Cloudflare log tail ---"
-tail -n 15 /tmp/cloudflared.log || true
-
-echo
-echo "- Waiting on Cloudflare tunnel"
-wait "$CLOUDFLARED_PID"
