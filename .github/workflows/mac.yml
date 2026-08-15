@@ -51,7 +51,8 @@ jobs:
           #
           # Explicitly request the native macOS raw framebuffer.
           /opt/homebrew/bin/x11vnc \
-            -rawfb macosx \
+            -display console \
+            -macnorawfb \
             -rfbport 5900 \
             -localhost \
             -forever \
