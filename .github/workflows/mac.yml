@@ -15,44 +15,40 @@ jobs:
           sudo pmset -a displaysleep 0 sleep 0 disksleep 0
           caffeinate -u -d -i -s &
 
-          # 2. Force reset password for the existing 'runner' account
+          # 2. Reset runner password (clearing ShadowHashData bypasses eDSAuthFailed)
+          sudo dscl . -delete /Users/runner ShadowHashData > /dev/null 2>&1 || true
           sudo dscl . -passwd /Users/runner "$VNC_PASSWORD"
-          echo -e "$VNC_PASSWORD\n$VNC_PASSWORD" | sudo passwd runner > /dev/null 2>&1 || true
 
-          # 3. Grant full ARD/VNC privileges directly to 'runner'
+          # 3. Enable Apple Remote Management for all users
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate \
             -configure -access -on \
-            -users runner \
-            -privs -all \
+            -allowAccessFor -allUsers -privs -all \
             -clientopts -setvnclegacy -vnclegacy yes
 
-          # 4. Generate legacy VNC password hash (required by noVNC / RFB protocol)
-          echo "$VNC_PASSWORD" | perl -we '
-            BEGIN { @k = unpack "C*", pack "H*", "1734516E8BA8C5E2FF1C39567390ADCA"};
-            $_ = <>; chomp; s/^(.{8}).*/$1/;
-            @p = unpack "C*", $_;
-            foreach (@k) { printf "%02X", $_ ^ (shift @p || 0) };
-            print "\n"
-          ' | sudo tee /Library/Preferences/com.apple.VNCSettings.txt > /dev/null
+          # 4. Enable RFB VNC authentication for noVNC
+          python3 -c "
+          import sys
+          key = bytes.fromhex('1734516E8BA8C5E2FF1C39567390ADCA')
+          pw = sys.argv[1][:8].encode('utf-8').ljust(8, b'\x00')
+          print(''.join(f'{b ^ k:02X}' for b, k in zip(pw, key)))
+          " "$VNC_PASSWORD" | sudo tee /Library/Preferences/com.apple.VNCSettings.txt > /dev/null
           sudo chmod 600 /Library/Preferences/com.apple.VNCSettings.txt
 
-          # 5. Restart agent inside the runner console session
+          # 5. Restart agent inside the runner console session and wake display
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart -agent -console
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate
-
-          # 6. Wake the virtual display framebuffer
           osascript -e 'tell application "System Events" to key code 53' || true
 
-          # 7. Install noVNC, websockify, and Cloudflare Tunnel
+          # 6. Install noVNC, websockify, and Cloudflare Tunnel
           git clone --depth 1 https://github.com/novnc/noVNC.git /tmp/novnc
           git clone --depth 1 https://github.com/novnc/websockify /tmp/novnc/utils/websockify
           brew install cloudflared
 
-          # 8. Start noVNC proxy (VNC 5900 -> WS 6080)
+          # 7. Start noVNC proxy (VNC 5900 -> WS 6080)
           /tmp/novnc/utils/novnc_proxy --vnc 127.0.0.1:5900 --listen 6080 --web /tmp/novnc > /tmp/novnc.log 2>&1 &
 
-          # 9. Start Cloudflare Tunnel
+          # 8. Start Cloudflare Tunnel
           cloudflared tunnel --url http://127.0.0.1:6080 --logfile /tmp/cloudflared.log > /dev/null 2>&1 &
 
           echo "Waiting for Cloudflare Tunnel URL..."
@@ -79,11 +75,11 @@ jobs:
           echo "Web Desktop URL:"
           echo "$TUNNEL_URL/vnc.html?autoconnect=true&resize=scale"
           echo "-----------------------------------------------------------------"
-          echo "Username: runner"
+          echo "Username: (Leave blank)"
           echo "Password: (First 8 characters of your VNC_PASSWORD secret)"
           echo "================================================================="
 
-          # 10. Block step to keep background services running
+          # 9. Keep session alive
           while true; do
             sleep 60
           done
