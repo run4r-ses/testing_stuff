@@ -6,196 +6,106 @@ on:
 jobs:
   macos-web-vnc:
     runs-on: macos-latest
-
     timeout-minutes: 245
 
     steps:
-      - name: Diagnose macOS GUI session
+      - name: Configure Remote Management and VNC
         shell: bash
+        env:
+          VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
         run: |
-          set -u
+          set -euo pipefail
 
-          echo "============================================================"
-          echo "SYSTEM"
-          echo "============================================================"
-
-          sw_vers || true
-          uname -a || true
-
-          echo
-          echo "============================================================"
-          echo "CURRENT USER"
-          echo "============================================================"
-
-          echo "whoami: $(whoami)"
-          echo "USER: ${USER:-unknown}"
-          echo "HOME: ${HOME:-unknown}"
-
-          echo
-          echo "============================================================"
-          echo "CONSOLE USER"
-          echo "============================================================"
-
-          CONSOLE_USER="$(stat -f '%Su' /dev/console 2>/dev/null || echo unknown)"
-          echo "Console user: $CONSOLE_USER"
-
-          echo
-          echo "Logged-in users:"
-          who || true
-
-          echo
-          echo "Loginwindow:"
-          ps aux | grep -E '[l]oginwindow' || true
-
-          echo
-          echo "WindowServer:"
-          ps aux | grep -E '[W]indowServer' || true
-
-          echo
-          echo "GUI-related processes:"
-          ps aux | grep -E 'WindowServer|loginwindow|Dock|Finder|SystemUIServer' || true
-
-          echo
-          echo "============================================================"
-          echo "DISPLAY ENVIRONMENT"
-          echo "============================================================"
-
-          echo "DISPLAY=${DISPLAY:-<unset>}"
-          echo "SSH_CONNECTION=${SSH_CONNECTION:-<unset>}"
-          echo "TERM=${TERM:-<unset>}"
-
-          echo
-          echo "Console owner:"
-          ls -la /dev/console || true
-
-          echo
-          echo "============================================================"
-          echo "WINDOWSERVER / GRAPHICS SERVICES"
-          echo "============================================================"
-
-          launchctl print system/com.apple.WindowServer 2>&1 | head -100 || true
-
-          echo
-          echo "Graphics processes:"
-          ps aux | grep -Ei '[W]indowServer|[c]oreaudiod|[d]isplaypolicyd' || true
-
-      - name: Configure Remote Management for existing runner user
-        shell: bash
-        run: |
-          set -euxo pipefail
-
-          ARD="/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart"
-
-          if [[ ! -x "$ARD" ]]; then
-            echo "ERROR: ARD kickstart utility not found:"
-            echo "$ARD"
+          if [[ -z "${VNC_PASSWORD:-}" ]]; then
+            echo "VNC_PASSWORD secret is not configured."
             exit 1
           fi
 
+          ARD="/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart"
+
+          # Disable Spotlight indexing.
+          sudo mdutil -i off -a >/dev/null 2>&1 || true
+
+          # The GitHub runner already has a logged-in graphical session.
           CONSOLE_USER="$(stat -f '%Su' /dev/console)"
 
-          echo "Console user: $CONSOLE_USER"
-
           if [[ "$CONSOLE_USER" == "root" || "$CONSOLE_USER" == "loginwindow" ]]; then
-            echo "WARNING: There is no normal graphical console user."
-            echo "Remote desktop may therefore produce a black screen."
+            echo "No active macOS graphical console session."
+            exit 1
           fi
 
-          echo
-          echo "Activating Apple Remote Management..."
+          echo "Using existing GUI session: $CONSOLE_USER"
 
+          # Enable Remote Management.
           sudo "$ARD" \
             -activate \
             -configure \
             -access \
             -on
 
-          echo
-          echo "Allowing access for all users..."
-
           sudo "$ARD" \
             -configure \
             -allowAccessFor \
             -allUsers
-
-          echo
-          echo "Granting Remote Management privileges..."
 
           sudo "$ARD" \
             -configure \
             -privs \
             -all
 
-          echo
-          echo "Enabling legacy VNC..."
-
+          # Enable legacy VNC authentication.
           sudo "$ARD" \
             -configure \
             -clientopts \
             -setvnclegacy \
             -vnclegacy yes
 
-          echo
-          echo "Restarting ARD agent..."
+          # Generate Apple's legacy VNC password file.
+          VNC_HASH="$(
+            printf '%s\n' "$VNC_PASSWORD" |
+            perl -we '
+              BEGIN {
+                @k = unpack "C*", pack "H*",
+                  "1734516E8BA8C5E2FF1C39567390ADCA";
+              }
 
-          sudo "$ARD" \
-            -restart \
-            -agent
+              $_ = <>;
+              chomp;
+              s/^(.{8}).*/$1/;
+
+              @p = unpack "C*", $_;
+
+              foreach (@k) {
+                printf "%02X", $_ ^ (shift @p || 0);
+              }
+
+              print "\n";
+            '
+          )"
+
+          printf '%s\n' "$VNC_HASH" |
+            sudo tee /Library/Preferences/com.apple.VNCSettings.txt >/dev/null
+
+          sudo chmod 600 \
+            /Library/Preferences/com.apple.VNCSettings.txt
+
+          unset VNC_HASH
+
+          # Restart Remote Management so the VNC configuration is picked up.
+          sudo "$ARD" -restart -agent
 
           sleep 5
 
-          echo
-          echo "============================================================"
-          echo "ARD STATUS"
-          echo "============================================================"
-
-          sudo "$ARD" -status || true
-
-          echo
-          echo "============================================================"
-          echo "ARD PROCESSES"
-          echo "============================================================"
-
-          ps aux | grep -Ei '[A]RDAgent|[AR]emoteManagement' || true
-
-          echo
-          echo "============================================================"
-          echo "VNC LISTENER"
-          echo "============================================================"
-
-          sudo lsof -nP -iTCP:5900 -sTCP:LISTEN || true
-
-      - name: Verify local VNC connectivity
-        shell: bash
-        run: |
-          set -u
-
-          echo "============================================================"
-          echo "PORT 5900"
-          echo "============================================================"
-
-          sudo lsof -nP -iTCP:5900 || true
-
-          echo
-          echo "Testing TCP connection to localhost:5900..."
-
-          if nc -zv 127.0.0.1 5900; then
-            echo "VNC TCP port is reachable."
-          else
-            echo "ERROR: Nothing is accepting connections on TCP 5900."
+          # Verify that VNC is actually listening.
+          if ! nc -z 127.0.0.1 5900; then
+            echo "VNC server failed to start."
+            exit 1
           fi
-
-          echo
-          echo "============================================================"
-          echo "REMOTE MANAGEMENT PROCESSES"
-          echo "============================================================"
-
-          ps aux | grep -Ei '[A]RDAgent|[V]NC|[r]emote' || true
 
       - name: Install noVNC
         shell: bash
         run: |
-          set -euxo pipefail
+          set -euo pipefail
 
           rm -rf /tmp/novnc
 
@@ -207,109 +117,50 @@ jobs:
             https://github.com/novnc/websockify \
             /tmp/novnc/utils/websockify
 
-          echo
-          echo "noVNC installed:"
-          ls -la /tmp/novnc
-
-          echo
-          echo "novnc_proxy:"
-          ls -l /tmp/novnc/utils/novnc_proxy
-
-      - name: Start noVNC and verify it locally
+      - name: Install Cloudflare Tunnel
         shell: bash
         run: |
-          set -u
-
-          echo "Starting noVNC..."
-
-          /tmp/novnc/utils/novnc_proxy \
-            --vnc 127.0.0.1:5900 \
-            --listen 6080 \
-            > /tmp/novnc.log 2>&1 &
-
-          NOVNC_PID=$!
-
-          echo "$NOVNC_PID" > /tmp/novnc.pid
-
-          echo "noVNC PID: $NOVNC_PID"
-
-          sleep 5
-
-          echo
-          echo "============================================================"
-          echo "noVNC LOG"
-          echo "============================================================"
-
-          cat /tmp/novnc.log || true
-
-          echo
-          echo "============================================================"
-          echo "PORT 6080"
-          echo "============================================================"
-
-          lsof -nP -iTCP:6080 -sTCP:LISTEN || true
-
-          echo
-          echo "============================================================"
-          echo "HTTP TEST"
-          echo "============================================================"
-
-          HTTP_STATUS="$(
-            curl \
-              --silent \
-              --show-error \
-              --output /tmp/vnc.html \
-              --write-out '%{http_code}' \
-              http://127.0.0.1:6080/vnc.html \
-              || true
-          )"
-
-          echo "HTTP status: $HTTP_STATUS"
-
-          if [[ "$HTTP_STATUS" == "200" ]]; then
-            echo "noVNC HTTP interface is working."
-          else
-            echo "WARNING: noVNC HTTP interface returned HTTP $HTTP_STATUS"
-          fi
-
-          echo
-          echo "vnc.html size:"
-          wc -c /tmp/vnc.html 2>/dev/null || true
-
-      - name: Install cloudflared
-        shell: bash
-        run: |
-          set -euxo pipefail
+          set -euo pipefail
 
           brew install cloudflared
 
-          echo
-          cloudflared --version
-
-      - name: Start Cloudflare Quick Tunnel
+      - name: Start noVNC and Cloudflare Tunnel
         shell: bash
         run: |
-          set -u
+          set -euo pipefail
 
-          echo "Starting Cloudflare tunnel..."
+          # Start the WebSocket-to-VNC bridge.
+          /tmp/novnc/utils/novnc_proxy \
+            --vnc 127.0.0.1:5900 \
+            --listen 6080 \
+            >/tmp/novnc.log 2>&1 &
 
+          NOVNC_PID=$!
+
+          sleep 3
+
+          if ! kill -0 "$NOVNC_PID" 2>/dev/null; then
+            echo "noVNC failed to start."
+            cat /tmp/novnc.log || true
+            exit 1
+          fi
+
+          if ! nc -z 127.0.0.1 6080; then
+            echo "noVNC is not listening on port 6080."
+            exit 1
+          fi
+
+          # Start Cloudflare Quick Tunnel.
           cloudflared tunnel \
             --url http://127.0.0.1:6080 \
             --logfile /tmp/cloudflared.log \
-            > /tmp/cloudflared.stdout 2>&1 &
+            >/tmp/cloudflared.stdout 2>&1 &
 
           CLOUDFLARED_PID=$!
 
-          echo "$CLOUDFLARED_PID" > /tmp/cloudflared.pid
-
-          echo "cloudflared PID: $CLOUDFLARED_PID"
-
-          echo
-          echo "Waiting for tunnel..."
-
           TUNNEL_URL=""
 
-          for i in {1..30}; do
+          for _ in {1..30}; do
             sleep 1
 
             TUNNEL_URL="$(
@@ -327,125 +178,29 @@ jobs:
             fi
           done
 
-          echo
-          echo "============================================================"
-          echo "CLOUDFLARE LOG"
-          echo "============================================================"
-
-          cat /tmp/cloudflared.log 2>/dev/null || true
-
-          echo
-          echo "============================================================"
-          echo "CLOUDFLARE STDOUT"
-          echo "============================================================"
-
-          cat /tmp/cloudflared.stdout 2>/dev/null || true
-
-          echo
-          echo "============================================================"
-          echo "RESULT"
-          echo "============================================================"
-
           if [[ -z "$TUNNEL_URL" ]]; then
-            echo "ERROR: Could not determine Cloudflare tunnel URL."
+            echo "Cloudflare tunnel failed to start."
+            cat /tmp/cloudflared.log || true
+            cat /tmp/cloudflared.stdout || true
             exit 1
           fi
 
-          echo "Tunnel URL:"
-          echo "$TUNNEL_URL"
-
-          echo
-          echo "noVNC URL:"
-          echo "$TUNNEL_URL/vnc.html?autoconnect=true&host=$(echo "$TUNNEL_URL" | sed 's#https://##')&port=443&path=websockify"
-
           echo
           echo "============================================================"
-          echo "LOCAL SERVICES"
+          echo "macOS Web Desktop"
+          echo "============================================================"
+          echo
+          echo "$TUNNEL_URL/vnc.html"
+          echo
+          echo "VNC password: the value configured in the VNC_PASSWORD secret."
+          echo
           echo "============================================================"
 
-          echo "VNC:"
-          nc -zv 127.0.0.1 5900 || true
+          # Keep the processes alive if this shell exits.
+          disown "$NOVNC_PID" || true
+          disown "$CLOUDFLARED_PID" || true
 
-          echo
-          echo "noVNC:"
-          nc -zv 127.0.0.1 6080 || true
-
-      - name: Final GUI diagnostics
+      - name: Keep Session Active
         shell: bash
         run: |
-          set +e
-
-          echo
-          echo "============================================================"
-          echo "FINAL CONSOLE USER"
-          echo "============================================================"
-
-          stat -f "%Su" /dev/console
-
-          echo
-          echo "============================================================"
-          echo "LOGGED-IN USERS"
-          echo "============================================================"
-
-          who
-
-          echo
-          echo "============================================================"
-          echo "WINDOWSERVER"
-          echo "============================================================"
-
-          ps aux | grep -E '[W]indowServer' || true
-
-          echo
-          echo "============================================================"
-          echo "LOGINWINDOW"
-          echo "============================================================"
-
-          ps aux | grep -E '[l]oginwindow' || true
-
-          echo
-          echo "============================================================"
-          echo "ARD"
-          echo "============================================================"
-
-          sudo lsof -nP -iTCP:5900 || true
-          ps aux | grep -Ei '[A]RDAgent|[R]emoteManagement' || true
-
-          echo
-          echo "============================================================"
-          echo "NOVNC"
-          echo "============================================================"
-
-          cat /tmp/novnc.log 2>/dev/null || true
-
-          echo
-          echo "============================================================"
-          echo "CLOUDFLARED"
-          echo "============================================================"
-
-          cat /tmp/cloudflared.log 2>/dev/null || true
-
-          echo
-          echo "============================================================"
-          echo "PROCESSES"
-          echo "============================================================"
-
-          ps aux | grep -E '[n]ovnc|[w]ebsockify|[c]loudflared' || true
-
-      - name: Upload diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-gui-vnc-diagnostics
-          path: |
-            /tmp/novnc.log
-            /tmp/cloudflared.log
-            /tmp/cloudflared.stdout
-            /tmp/vnc.html
-          if-no-files-found: ignore
-
-      - name: Keep session active
-        shell: bash
-        run: |
-          echo "Keeping runner alive for 4 hours..."
           sleep 14400
