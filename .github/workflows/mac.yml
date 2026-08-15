@@ -39,30 +39,19 @@ jobs:
           set -euo pipefail
 
           echo "============================================================"
-          echo "Starting x11vnc"
+          echo "Starting x11vnc native macOS framebuffer"
           echo "============================================================"
-
-          CONSOLE_USER="$(stat -f '%Su' /dev/console)"
-
-          if [[ -z "$CONSOLE_USER" || "$CONSOLE_USER" == "root" || "$CONSOLE_USER" == "loginwindow" ]]; then
-            echo "No usable GUI console user."
-            exit 1
-          fi
-
-          echo "Console user: $CONSOLE_USER"
 
           mkdir -p /tmp/x11vnc
 
-          # x11vnc has native macOS Quartz support.  On macOS the
-          # special "console" display tells it to use the native
-          # console framebuffer rather than an X11 display.
+          # Do NOT use "-display console".
           #
-          # -nopw is intentional for this first test. The VNC server
-          # is bound to localhost and is never exposed directly.
+          # On this runner x11vnc's console_guess resolves the
+          # framebuffer to /dev/null and then crashes.
           #
-          # Cloudflare only exposes the noVNC HTTP/WebSocket endpoint.
+          # Explicitly request the native macOS raw framebuffer.
           /opt/homebrew/bin/x11vnc \
-            -display console \
+            -rawfb macosx \
             -rfbport 5900 \
             -localhost \
             -forever \
@@ -76,18 +65,15 @@ jobs:
 
           echo "x11vnc PID: $X11VNC_PID"
 
-          echo
-          echo "Waiting for VNC server..."
-
           for i in {1..30}; do
             if nc -z 127.0.0.1 5900 2>/dev/null; then
-              echo "VNC server is listening on 127.0.0.1:5900"
+              echo "VNC server is listening."
               break
             fi
 
             if ! kill -0 "$X11VNC_PID" 2>/dev/null; then
               echo
-              echo "x11vnc exited unexpectedly:"
+              echo "x11vnc exited."
               cat /tmp/x11vnc/x11vnc.log
               exit 1
             fi
@@ -96,18 +82,15 @@ jobs:
           done
 
           if ! nc -z 127.0.0.1 5900 2>/dev/null; then
-            echo "x11vnc never opened port 5900."
-            echo
+            echo "x11vnc failed to open port 5900."
             cat /tmp/x11vnc/x11vnc.log
             exit 1
           fi
 
           echo
-          echo "============================================================"
-          echo "x11vnc started"
-          echo "============================================================"
-
-          tail -n 40 /tmp/x11vnc/x11vnc.log || true
+          echo "x11vnc is running."
+          echo
+          tail -n 50 /tmp/x11vnc/x11vnc.log
 
       - name: Start noVNC
         shell: bash
