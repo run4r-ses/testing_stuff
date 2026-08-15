@@ -5,33 +5,32 @@ on:
 
 jobs:
   macos-web-vnc:
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
-      - name: Create Admin User & Configure Remote Management
+      - name: Configure Remote Management & Display Permissions
         env:
           VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
         run: |
-          # 1. Disable Spotlight indexing to free up CPU/disk
-          sudo mdutil -i off -a > /dev/null 2>&1 || true
+          # 1. Prevent display and system sleep
+          sudo pmset -a displaysleep 0 sleep 0 disksleep 0
+          caffeinate -u -d -s -t 14400 &
 
-          # 2. Create a clean admin account (avoids existing user dscl auth locks)
-          sudo dscl . -create /Users/runneradmin
-          sudo dscl . -create /Users/runneradmin UserShell /bin/bash
-          sudo dscl . -create /Users/runneradmin RealName "Runner Admin"
-          sudo dscl . -create /Users/runneradmin UniqueID 1001
-          sudo dscl . -create /Users/runneradmin PrimaryGroupID 80
-          sudo dscl . -create /Users/runneradmin NFSHomeDirectory /Users/runneradmin
-          sudo dscl . -passwd /Users/runneradmin "$VNC_PASSWORD"
-          sudo createhomedir -c -u runneradmin > /dev/null 2>&1 || true
-          sudo dscl . -append /Groups/admin GroupMembership runneradmin
+          # 2. Set password for the existing logged-in 'runner' account
+          echo "$VNC_PASSWORD" | sudo dscl . -passwd /Users/runner
 
-          # 3. Configure Apple Remote Management
+          # 3. Inject Screen Recording & Accessibility permissions into TCC database
+          TCC_DB="/Library/Application Support/com.apple.TCC/TCC.db"
+          sudo sqlite3 "$TCC_DB" "INSERT OR REPLACE INTO access VALUES('kTCCServiceScreenCapture','com.apple.screensharing.agent',0,2,4,1,NULL,NULL,0,'UNUSED',NULL,0,1664219985);"
+          sudo sqlite3 "$TCC_DB" "INSERT OR REPLACE INTO access VALUES('kTCCServiceScreenCapture','com.apple.RemoteDesktopAgent',0,2,4,1,NULL,NULL,0,'UNUSED',NULL,0,1664219985);"
+          sudo sqlite3 "$TCC_DB" "INSERT OR REPLACE INTO access VALUES('kTCCServiceAccessibility','com.apple.RemoteDesktopAgent',0,2,4,1,NULL,NULL,0,'UNUSED',NULL,0,1664219985);"
+
+          # 4. Configure Apple Remote Desktop / Screen Sharing
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate -configure -allowAccessFor -allUsers -privs -all
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -configure -clientopts -setvnclegacy -vnclegacy yes
 
-          # 4. Generate the legacy VNC password hash using macOS XOR key
+          # 5. Set legacy VNC password hash
           echo "$VNC_PASSWORD" | perl -we '
             BEGIN { @k = unpack "C*", pack "H*", "1734516E8BA8C5E2FF1C39567390ADCA"};
             $_ = <>; chomp; s/^(.{8}).*/$1/;
@@ -41,11 +40,11 @@ jobs:
           ' | sudo tee /Library/Preferences/com.apple.VNCSettings.txt > /dev/null
           sudo chmod 600 /Library/Preferences/com.apple.VNCSettings.txt
 
-          # 5. Restart agent into console session
+          # 6. Restart ARD Agent in the active console session
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart -agent -console
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate
 
-      - name: Install noVNC and Cloudflare Tunnel
+      - name: Install noVNC & Cloudflare Tunnel
         run: |
           git clone --depth 1 https://github.com/novnc/noVNC.git /tmp/novnc
           git clone --depth 1 https://github.com/novnc/websockify /tmp/novnc/utils/websockify
@@ -53,22 +52,20 @@ jobs:
 
       - name: Launch Web Bridge & Cloudflare Tunnel
         run: |
-          # Proxy VNC port 5900 to WebSockets port 6080
+          # Start websockify proxy (VNC 5900 -> WS 6080)
           /tmp/novnc/utils/novnc_proxy --vnc localhost:5900 --listen 6080 > /tmp/novnc.log 2>&1 &
 
-          # Start Cloudflare Quick Tunnel (no auth/card required)
+          # Start Cloudflare Tunnel
           cloudflared tunnel --url http://localhost:6080 --logfile /tmp/cloudflared.log &
 
-          sleep 8
+          # Wait for tunnel initialization
+          sleep 10
 
           TUNNEL_URL=$(grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' /tmp/cloudflared.log | head -n 1)
 
           echo "================================================================="
-          echo "Web Desktop Link:"
-          echo "$TUNNEL_URL/vnc.html?autoconnect=true"
-          echo "-----------------------------------------------------------------"
-          echo "Username: runneradmin"
-          echo "Password: (Your configured VNC_PASSWORD secret)"
+          echo "Web Desktop URL: $TUNNEL_URL/vnc.html?autoconnect=true"
+          echo "VNC Password: (Your configured VNC_PASSWORD secret)"
           echo "================================================================="
 
       - name: Keep Session Active
