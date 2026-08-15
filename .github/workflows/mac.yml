@@ -5,52 +5,58 @@ on:
 
 jobs:
   macos-web-vnc:
-    runs-on: macos-14 # Or macos-latest
+    runs-on: macos-14
     steps:
-      - name: Configure macOS Screen Sharing & Passwords
+      - name: Create Admin User & Configure Remote Management
         env:
           VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
         run: |
-          # 1. Truncate password to 8 characters and pad to 8 bytes
-          RAW_PASS="${VNC_PASSWORD:0:8}"
-          PADDED_PASS=$(printf "%-8s" "$RAW_PASS")
+          # 1. Disable Spotlight indexing to free up CPU/disk
+          sudo mdutil -i off -a > /dev/null 2>&1 || true
 
-          # 2. Set 'runner' user password non-interactively via expect
-          /usr/bin/expect <<EOF
-          spawn sudo passwd runner
-          expect "New password:"
-          send "$RAW_PASS\r"
-          expect "Retype new password:"
-          send "$RAW_PASS\r"
-          expect eof
-          EOF
+          # 2. Create a clean admin account (avoids existing user dscl auth locks)
+          sudo dscl . -create /Users/runneradmin
+          sudo dscl . -create /Users/runneradmin UserShell /bin/bash
+          sudo dscl . -create /Users/runneradmin RealName "Runner Admin"
+          sudo dscl . -create /Users/runneradmin UniqueID 1001
+          sudo dscl . -create /Users/runneradmin PrimaryGroupID 80
+          sudo dscl . -create /Users/runneradmin NFSHomeDirectory /Users/runneradmin
+          sudo dscl . -passwd /Users/runneradmin "$VNC_PASSWORD"
+          sudo createhomedir -c -u runneradmin > /dev/null 2>&1 || true
+          sudo dscl . -append /Groups/admin GroupMembership runneradmin
 
-          # 3. Write VNC legacy password directly (bypassing broken kickstart -setvncpw)
-          # Uses Apple's standard DES key: 5A7B4E765647624A
-          ENC_HEX=$(echo -n "$PADDED_PASS" | openssl enc -des-ecb -K 5A7B4E765647624A -nopad 2>/dev/null | xxd -p -c 256)
-          echo "$ENC_HEX" | sudo tee /Library/Preferences/com.apple.VNCSettings.txt > /dev/null
+          # 3. Configure Apple Remote Management
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -activate -configure -allowAccessFor -allUsers -privs -all
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -configure -clientopts -setvnclegacy -vnclegacy yes
+
+          # 4. Generate the legacy VNC password hash using macOS XOR key
+          echo "$VNC_PASSWORD" | perl -we '
+            BEGIN { @k = unpack "C*", pack "H*", "1734516E8BA8C5E2FF1C39567390ADCA"};
+            $_ = <>; chomp; s/^(.{8}).*/$1/;
+            @p = unpack "C*", $_;
+            foreach (@k) { printf "%02X", $_ ^ (shift @p || 0) };
+            print "\n"
+          ' | sudo tee /Library/Preferences/com.apple.VNCSettings.txt > /dev/null
           sudo chmod 600 /Library/Preferences/com.apple.VNCSettings.txt
 
-          # 4. Activate ARD / Screen Sharing daemon with full permissions
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -activate -configure -access -on \
-            -allowAccessFor -allUsers \
-            -privs -all \
-            -clientopts -setvnclegacy -vnclegacy yes \
-            -restart -agent
+          # 5. Restart agent into console session
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart -agent -console
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate
 
-      - name: Install noVNC and Dependencies
+      - name: Install noVNC and Cloudflare Tunnel
         run: |
           git clone --depth 1 https://github.com/novnc/noVNC.git /tmp/novnc
           git clone --depth 1 https://github.com/novnc/websockify /tmp/novnc/utils/websockify
           brew install cloudflared
 
-      - name: Launch noVNC Bridge & Cloudflare Tunnel
+      - name: Launch Web Bridge & Cloudflare Tunnel
         run: |
-          # Start noVNC proxying 5900 -> 6080
+          # Proxy VNC port 5900 to WebSockets port 6080
           /tmp/novnc/utils/novnc_proxy --vnc localhost:5900 --listen 6080 > /tmp/novnc.log 2>&1 &
 
-          # Start Cloudflare tunnel
+          # Start Cloudflare Quick Tunnel (no auth/card required)
           cloudflared tunnel --url http://localhost:6080 --logfile /tmp/cloudflared.log &
 
           sleep 8
@@ -58,10 +64,11 @@ jobs:
           TUNNEL_URL=$(grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' /tmp/cloudflared.log | head -n 1)
 
           echo "================================================================="
-          echo "Open this URL in your browser:"
+          echo "Web Desktop Link:"
           echo "$TUNNEL_URL/vnc.html?autoconnect=true"
           echo "-----------------------------------------------------------------"
-          echo "Password: (First 8 characters of your VNC_PASSWORD secret)"
+          echo "Username: runneradmin"
+          echo "Password: (Your configured VNC_PASSWORD secret)"
           echo "================================================================="
 
       - name: Keep Session Active
