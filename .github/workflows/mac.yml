@@ -1,165 +1,157 @@
-name: macOS GUI Display Test
+name: macOS GUI in Browser (noVNC)
 
 on:
   workflow_dispatch:
 
 jobs:
-  macos-display:
+  macos-web-vnc:
     runs-on: macos-latest
     timeout-minutes: 245
 
     steps:
-      - name: Install display server dependencies
+      - name: Configure Apple Remote Management
+        shell: bash
+        env:
+          VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${VNC_PASSWORD:-}" ]]; then
+            echo "VNC_PASSWORD secret is not configured."
+            exit 1
+          fi
+
+          ARD="/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart"
+
+          # Disable Spotlight indexing to reduce unnecessary runner load.
+          sudo mdutil -i off -a >/dev/null 2>&1 || true
+
+          # The GitHub runner already has an active GUI session.
+          CONSOLE_USER="$(stat -f '%Su' /dev/console)"
+
+          if [[ "$CONSOLE_USER" == "root" || "$CONSOLE_USER" == "loginwindow" ]]; then
+            echo "No active macOS GUI session."
+            exit 1
+          fi
+
+          echo "Using console user: $CONSOLE_USER"
+
+          # This is intentionally the same ARD activation sequence
+          # as the version where VNC authentication worked.
+          sudo "$ARD" \
+            -activate \
+            -configure \
+            -allowAccessFor \
+            -allUsers \
+            -privs \
+            -all
+
+          # Enable legacy VNC authentication.
+          sudo "$ARD" \
+            -configure \
+            -clientopts \
+            -setvnclegacy \
+            -vnclegacy yes
+
+          # Generate Apple's legacy VNC password hash.
+          VNC_HASH="$(
+            printf '%s\n' "$VNC_PASSWORD" |
+            perl -we '
+              BEGIN {
+                @k = unpack "C*", pack "H*",
+                  "1734516E8BA8C5E2FF1C39567390ADCA";
+              }
+
+              $_ = <>;
+              chomp;
+              s/^(.{8}).*/$1/;
+
+              @p = unpack "C*", $_;
+
+              foreach (@k) {
+                printf "%02X", $_ ^ (shift @p || 0);
+              }
+
+              print "\n";
+            '
+          )"
+
+          printf '%s\n' "$VNC_HASH" |
+            sudo tee /Library/Preferences/com.apple.VNCSettings.txt >/dev/null
+
+          unset VNC_HASH
+
+          sudo chmod 600 \
+            /Library/Preferences/com.apple.VNCSettings.txt
+
+          # Important:
+          # Keep -console from the original working workflow.
+          sudo "$ARD" \
+            -restart \
+            -agent \
+            -console
+
+          sleep 3
+
+          # Re-activate after restarting the agent.
+          sudo "$ARD" -activate
+
+          sleep 5
+
+          # Confirm that the VNC listener exists.
+          if ! nc -z 127.0.0.1 5900; then
+            echo "VNC server is not listening on port 5900."
+            exit 1
+          fi
+
+          echo "VNC server is listening on port 5900."
+
+      - name: Install noVNC and Cloudflare
         shell: bash
         run: |
           set -euo pipefail
+
+          rm -rf /tmp/novnc
+
+          git clone --depth 1 \
+            https://github.com/novnc/noVNC.git \
+            /tmp/novnc
+
+          git clone --depth 1 \
+            https://github.com/novnc/websockify \
+            /tmp/novnc/utils/websockify
 
           brew install cloudflared
 
-      - name: Verify GUI session
+      - name: Start Web Bridge and Cloudflare Tunnel
         shell: bash
         run: |
           set -euo pipefail
 
-          CONSOLE_USER="$(stat -f '%Su' /dev/console)"
+          /tmp/novnc/utils/novnc_proxy \
+            --vnc 127.0.0.1:5900 \
+            --listen 6080 \
+            >/tmp/novnc.log 2>&1 &
 
-          echo "Console user: $CONSOLE_USER"
+          NOVNC_PID=$!
 
-          if [[ "$CONSOLE_USER" == "root" || "$CONSOLE_USER" == "loginwindow" ]]; then
-            echo "No active graphical console session."
+          sleep 3
+
+          if ! kill -0 "$NOVNC_PID" 2>/dev/null; then
+            echo "noVNC failed to start."
+            cat /tmp/novnc.log
             exit 1
           fi
 
-          if ! pgrep -x WindowServer >/dev/null; then
-            echo "WindowServer is not running."
+          if ! nc -z 127.0.0.1 6080; then
+            echo "noVNC is not listening on port 6080."
             exit 1
           fi
-
-          echo "GUI session is active."
-
-      - name: Start screenshot web server
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          mkdir -p "$RUNNER_TEMP/display"
-
-          cat > "$RUNNER_TEMP/display/server.py" <<'PY'
-          import http.server
-          import os
-          import subprocess
-          import time
-
-          ROOT = os.environ["RUNNER_TEMP"] + "/display"
-          PORT = 6080
-
-          os.makedirs(ROOT, exist_ok=True)
-
-          class Handler(http.server.BaseHTTPRequestHandler):
-              def do_GET(self):
-                  if self.path == "/":
-                      self.send_response(200)
-                      self.send_header("Content-Type", "text/html; charset=utf-8")
-                      self.end_headers()
-
-                      html = """
-                      <!doctype html>
-                      <html>
-                      <head>
-                        <meta charset="utf-8">
-                        <title>macOS Runner</title>
-                        <style>
-                          html, body {
-                            margin: 0;
-                            background: #111;
-                            width: 100%;
-                            height: 100%;
-                            overflow: hidden;
-                          }
-                          img {
-                            width: 100%;
-                            height: 100%;
-                            object-fit: contain;
-                          }
-                        </style>
-                      </head>
-                      <body>
-                        <img id="screen" src="/screen.png">
-                        <script>
-                          setInterval(() => {
-                            document.getElementById("screen").src =
-                              "/screen.png?t=" + Date.now();
-                          }, 1000);
-                        </script>
-                      </body>
-                      </html>
-                      """
-
-                      self.wfile.write(html.encode())
-                      return
-
-                  if self.path.startswith("/screen.png"):
-                      path = os.path.join(ROOT, "screen.png")
-
-                      if not os.path.exists(path):
-                          self.send_error(404)
-                          return
-
-                      with open(path, "rb") as f:
-                          data = f.read()
-
-                      self.send_response(200)
-                      self.send_header("Content-Type", "image/png")
-                      self.send_header("Content-Length", str(len(data)))
-                      self.send_header("Cache-Control", "no-store")
-                      self.end_headers()
-                      self.wfile.write(data)
-                      return
-
-                  self.send_error(404)
-
-              def log_message(self, *args):
-                  pass
-
-          http.server.ThreadingHTTPServer(
-              ("127.0.0.1", PORT),
-              Handler
-          ).serve_forever()
-          PY
-
-          python3 "$RUNNER_TEMP/display/server.py" \
-            > "$RUNNER_TEMP/display-server.log" 2>&1 &
-
-          echo $! > "$RUNNER_TEMP/display-server.pid"
-
-      - name: Capture macOS display
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          DISPLAY_DIR="$RUNNER_TEMP/display"
-
-          while true; do
-            screencapture \
-              -x \
-              -C \
-              "$DISPLAY_DIR/screen.png" \
-              >/dev/null 2>&1 || true
-
-            sleep 1
-          done &
-
-          echo $! > "$RUNNER_TEMP/screencapture.pid"
-
-      - name: Start Cloudflare tunnel
-        shell: bash
-        run: |
-          set -euo pipefail
 
           cloudflared tunnel \
             --url http://127.0.0.1:6080 \
-            --logfile "$RUNNER_TEMP/cloudflared.log" \
-            > "$RUNNER_TEMP/cloudflared.stdout" 2>&1 &
+            --logfile /tmp/cloudflared.log \
+            >/tmp/cloudflared.stdout 2>&1 &
 
           CLOUDFLARED_PID=$!
 
@@ -171,8 +163,8 @@ jobs:
             TUNNEL_URL="$(
               grep -Eo \
                 'https://[A-Za-z0-9.-]+\.trycloudflare\.com' \
-                "$RUNNER_TEMP/cloudflared.log" \
-                "$RUNNER_TEMP/cloudflared.stdout" \
+                /tmp/cloudflared.log \
+                /tmp/cloudflared.stdout \
                 2>/dev/null |
               head -n 1 ||
               true
@@ -184,21 +176,26 @@ jobs:
           done
 
           if [[ -z "$TUNNEL_URL" ]]; then
-            echo "Could not obtain Cloudflare URL."
-            cat "$RUNNER_TEMP/cloudflared.log" || true
+            echo "Cloudflare tunnel failed to start."
+            cat /tmp/cloudflared.log || true
+            cat /tmp/cloudflared.stdout || true
             exit 1
           fi
 
           echo
           echo "============================================================"
-          echo "MACOS DISPLAY"
-          echo "============================================================"
+          echo "Web Desktop:"
           echo
-          echo "$TUNNEL_URL"
+          echo "$TUNNEL_URL/vnc.html?autoconnect=true"
           echo
+          echo "VNC Password: the value of the VNC_PASSWORD secret"
           echo "============================================================"
 
-      - name: Keep session alive
+          # Keep background processes alive.
+          disown "$NOVNC_PID" || true
+          disown "$CLOUDFLARED_PID" || true
+
+      - name: Keep Session Active
         shell: bash
         run: |
           sleep 14400
