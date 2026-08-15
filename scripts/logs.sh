@@ -5,6 +5,7 @@ echo "* Streaming live tunnel and noVNC logs"
 
 NOVNC_PID="$(cat /tmp/novnc.pid 2>/dev/null || echo "")"
 CLOUDFLARED_PID="$(cat /tmp/cloudflared.pid 2>/dev/null || echo "")"
+KEEPALIVE_PID="$(cat /tmp/keepalive.pid 2>/dev/null || echo "")"
 
 # Start following all logs live in the background
 tail -n +1 -F /tmp/novnc.log /tmp/cloudflared.log /tmp/cloudflared.stdout &
@@ -12,6 +13,7 @@ TAIL_PID=$!
 
 cleanup() {
   kill "$TAIL_PID" 2>/dev/null || true
+  kill "$KEEPALIVE_PID" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
@@ -33,3 +35,4 @@ while true; do
 
   sleep 2
 done
+

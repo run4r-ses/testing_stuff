@@ -52,9 +52,6 @@ apply_visual_optimizations() {
   # Font smoothing for remote displays
   echo "- Setting font smoothing"
   ${PREFIX} defaults write NSGlobalDomain AppleFontSmoothing -int 1
-
-  # Solid background configuration
-  ${PREFIX} defaults write com.apple.desktop Background '{default = {Change = Never; BackgroundColor = (0, 0, 0); };}' 2>/dev/null || true
 }
 
 # Apply for current session user
@@ -72,24 +69,72 @@ sudo defaults write /Library/Preferences/com.apple.universalaccess reduceTranspa
 sudo defaults write /Library/Preferences/com.apple.universalaccess reduceMotion -bool true
 sudo defaults write /Library/Preferences/.GlobalPreferences AppleInterfaceStyle -string "Dark" 2>/dev/null || true
 
-# Generate solid black wallpaper
-echo "- Creating solid black wallpaper"
-python3 -c '
-import base64
-data = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
-with open("/tmp/black.png", "wb") as f:
-    f.write(data)
-' 2>/dev/null || true
-chmod 777 /tmp/black.png 2>/dev/null || true
-cp /tmp/black.png /Users/Shared/black.png 2>/dev/null || true
-chmod 777 /Users/Shared/black.png 2>/dev/null || true
+# ────────────────────────────────────────────────────────────────────
+# Generate a proper solid black wallpaper image (1920x1080)
+# A 1x1 image gets tiled/ignored on many macOS versions.
+# ────────────────────────────────────────────────────────────────────
+echo "- Creating solid black wallpaper (1920x1080)"
 
-# Apply wallpaper and dark mode via native Swift AppKit and launchctl context
-echo "- Setting wallpaper and interface style"
+python3 -c '
+import struct, zlib
+
+width, height = 1920, 1080
+
+def create_png(w, h):
+    def chunk(ctype, data):
+        c = ctype + data
+        crc = struct.pack(">I", zlib.crc32(c) & 0xFFFFFFFF)
+        return struct.pack(">I", len(data)) + c + crc
+
+    header = b"\x89PNG\r\n\x1a\n"
+    ihdr = chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+
+    # Build raw image data: each row is filter_byte(0) + RGB(0,0,0)*width
+    row = b"\x00" + b"\x00\x00\x00" * w
+    raw = row * h
+    idat = chunk(b"IDAT", zlib.compress(raw, 9))
+    iend = chunk(b"IEND", b"")
+
+    return header + ihdr + idat + iend
+
+png = create_png(width, height)
+with open("/tmp/black.png", "wb") as f:
+    f.write(png)
+' 2>/dev/null || true
+
+chmod 644 /tmp/black.png 2>/dev/null || true
+sudo cp /tmp/black.png /Users/Shared/black.png 2>/dev/null || true
+sudo chmod 644 /Users/Shared/black.png 2>/dev/null || true
+
+# ────────────────────────────────────────────────────────────────────
+# Apply wallpaper via all available methods
+# ────────────────────────────────────────────────────────────────────
+echo "- Setting wallpaper via desktoppr"
 
 CONSOLE_USER="$(stat -f '%Su' /dev/console 2>/dev/null || echo "runner")"
 CONSOLE_UID="$(id -u "$CONSOLE_USER" 2>/dev/null || echo "501")"
 TARGET_UID="$(id -u "$TARGET_USER" 2>/dev/null || echo "502")"
+
+# Method 1: desktoppr (most reliable on modern macOS, works without GUI session)
+if command -v desktoppr >/dev/null 2>&1; then
+  desktoppr "/Users/Shared/black.png" 2>/dev/null || true
+  sudo -u "$CONSOLE_USER" desktoppr "/Users/Shared/black.png" 2>/dev/null || true
+  if [[ "$TARGET_USER" != "$CONSOLE_USER" ]]; then
+    sudo -u "$TARGET_USER" desktoppr "/Users/Shared/black.png" 2>/dev/null || true
+  fi
+  # Also set in launchctl GUI context
+  if [[ -n "$CONSOLE_UID" && "$CONSOLE_UID" != "0" ]]; then
+    launchctl asuser "$CONSOLE_UID" sudo -u "$CONSOLE_USER" desktoppr "/Users/Shared/black.png" 2>/dev/null || true
+  fi
+  if [[ -n "$TARGET_UID" && "$TARGET_UID" != "0" && "$TARGET_UID" != "$CONSOLE_UID" ]]; then
+    launchctl asuser "$TARGET_UID" sudo -u "$TARGET_USER" desktoppr "/Users/Shared/black.png" 2>/dev/null || true
+  fi
+else
+  echo "! desktoppr not found, using fallback methods"
+fi
+
+# Method 2: Swift AppKit (needs GUI context but covers additional cases)
+echo "- Setting wallpaper via AppKit"
 
 cat << 'SWIFTEOF' > /tmp/set_wallpaper.swift
 import AppKit
@@ -123,11 +168,27 @@ if [[ -n "$TARGET_UID" && "$TARGET_UID" != "0" && "$TARGET_UID" != "$CONSOLE_UID
   launchctl asuser "$TARGET_UID" sudo -u "$TARGET_USER" osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' 2>/dev/null || true
 fi
 
-# Fallbacks
+# Method 3: osascript fallbacks
+echo "- Setting wallpaper via osascript fallbacks"
 osascript -e 'tell application "Finder" to set desktop picture to POSIX file "/Users/Shared/black.png"' 2>/dev/null || true
 osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' 2>/dev/null || true
 
-# Force wallpaper daemon and Dock reload
+# Force wallpaper daemon, Dock, Finder, and SystemUIServer reload
+echo "- Restarting UI daemons to apply changes"
 killall WallpaperAgent 2>/dev/null || true
 killall Dock 2>/dev/null || true
+killall Finder 2>/dev/null || true
+killall SystemUIServer 2>/dev/null || true
 
+# Give daemons time to respawn and apply
+sleep 3
+
+# Re-apply desktoppr after daemon restart (catches WallpaperAgent reset)
+if command -v desktoppr >/dev/null 2>&1; then
+  echo "- Re-applying wallpaper after daemon restart"
+  desktoppr "/Users/Shared/black.png" 2>/dev/null || true
+  sudo -u "$CONSOLE_USER" desktoppr "/Users/Shared/black.png" 2>/dev/null || true
+  if [[ "$TARGET_USER" != "$CONSOLE_USER" ]]; then
+    sudo -u "$TARGET_USER" desktoppr "/Users/Shared/black.png" 2>/dev/null || true
+  fi
+fi

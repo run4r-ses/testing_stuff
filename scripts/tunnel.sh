@@ -17,6 +17,7 @@ touch /tmp/novnc.log /tmp/cloudflared.log
   --vnc 127.0.0.1:5900 \
   --listen 6080 \
   --heartbeat 10 \
+  --web /tmp/novnc \
   >/tmp/novnc.log 2>&1 &
 
 NOVNC_PID=$!
@@ -37,17 +38,30 @@ fi
 
 echo "* noVNC is listening on http://127.0.0.1:6080"
 
-echo "* Starting Cloudflare Quick Tunnel"
+echo "* Starting Cloudflare Tunnel (HTTP/2 mode)"
+
+# --protocol http2:      Force HTTP/2 — far more stable for WebSocket traffic
+#                         than QUIC which drops with "no recent network activity"
+# --post-quantum false:   Disabling post-quantum forces HTTP/2 (PQ requires QUIC)
+# --ha-connections 4:     4 redundant connections — if one drops, others keep serving
+# --heartbeat-interval:   5s keepalive to detect dead connections fast
+# --heartbeat-count 5:    Mark connection dead after 5 missed heartbeats
+# --grace-period 30s:     Allow 30s for reconnection before giving up
+# --retries 10:           More retries for transient failures
+#
+# REMOVED: --no-chunked-encoding (breaks HTTP/2 stream multiplexing, stalls
+#          WebSocket frames for noVNC)
 
 cloudflared tunnel \
   --url http://127.0.0.1:6080 \
   --protocol http2 \
-  --ha-connections 1 \
+  --post-quantum false \
+  --ha-connections 4 \
   --edge-ip-version 4 \
-  --no-chunked-encoding \
   --http-host-header 127.0.0.1:6080 \
   --heartbeat-interval 5s \
-  --retries 5 \
+  --heartbeat-count 5 \
+  --retries 10 \
   --grace-period 30s \
   --logfile /tmp/cloudflared.log \
   >/tmp/cloudflared.stdout 2>&1 &
@@ -80,6 +94,18 @@ if [[ -z "$TUNNEL_URL" ]]; then
   cat /tmp/cloudflared.stdout || true
   exit 1
 fi
+
+# Start a lightweight keepalive that prevents idle timeouts by pinging
+# the local noVNC endpoint every 30s. This keeps the tunnel connections
+# warm even when no user is connected.
+(
+  while true; do
+    curl -sf http://127.0.0.1:6080/ >/dev/null 2>&1 || true
+    sleep 30
+  done
+) &
+KEEPALIVE_PID=$!
+echo "$KEEPALIVE_PID" > /tmp/keepalive.pid
 
 echo
 echo "* macOS web desktop is ready"

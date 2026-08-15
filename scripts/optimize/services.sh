@@ -31,9 +31,52 @@ defaults write com.apple.appleseed.FeedbackAssistant Autolaunch -bool false
 # Disable Audio UI feedback effects
 defaults write NSGlobalDomain "com.apple.sound.uiaudio.enabled" -int 0
 
-# Optimize TCP network stack for low-latency VNC streaming (disable delayed ACK)
-echo "- Optimizing TCP network stack for low-latency VNC"
+# Disable Time Machine
+echo "- Disabling Time Machine"
+sudo tmutil disable 2>/dev/null || true
+
+# Optimize TCP/UDP network stack for low-latency VNC streaming
+echo "- Optimizing network stack for low-latency VNC"
 sudo sysctl -w net.inet.tcp.delayed_ack=0 2>/dev/null || true
 sudo sysctl -w net.inet.tcp.mptcp.enable=0 2>/dev/null || true
 sudo sysctl -w net.inet.tcp.sendspace=1048576 2>/dev/null || true
 sudo sysctl -w net.inet.tcp.recvspace=1048576 2>/dev/null || true
+sudo sysctl -w kern.ipc.maxsockbuf=8388608 2>/dev/null || true
+
+# Kill heavyweight background processes that waste CPU and produce screen updates
+echo "- Killing unnecessary background processes"
+KILL_PROCS=(
+  "softwareupdated"
+  "com.apple.DiagnosticReportCleanUpAgent"
+  "diagnostics_agent"
+  "spindump"
+  "ReportCrash"
+  "SubmitDiagInfo"
+  "AMPDeviceDiscoveryAgent"
+  "photoanalysisd"
+  "photolibraryd"
+  "mediaanalysisd"
+  "gamecontrollerd"
+  "ManagedClient"
+  "suggestd"
+  "rapportd"
+  "parsecd"
+  "intelligenceplatformd"
+  "triald"
+  "UsageTrackingAgent"
+  "remindd"
+  "CalendarAgent"
+  "contactsd"
+  "coreduetd"
+  "knowledge-agent"
+)
+
+for PROC in "${KILL_PROCS[@]}"; do
+  sudo killall "$PROC" 2>/dev/null || true
+done
+
+# Disable software update checking
+echo "- Disabling automatic software update checks"
+sudo defaults write /Library/Preferences/com.apple.SoftwareUpdate AutomaticCheckEnabled -bool false 2>/dev/null || true
+sudo defaults write /Library/Preferences/com.apple.SoftwareUpdate AutomaticDownload -bool false 2>/dev/null || true
+sudo defaults write /Library/Preferences/com.apple.commerce AutoUpdate -bool false 2>/dev/null || true
