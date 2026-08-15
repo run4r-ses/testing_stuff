@@ -9,42 +9,35 @@ jobs:
     timeout-minutes: 245
 
     steps:
-      - name: Configure Apple Remote Management
-        shell: bash
+      - name: Configure VNC
         env:
           VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
         run: |
           set -euo pipefail
 
-          if [[ -z "${VNC_PASSWORD:-}" ]]; then
-            echo "VNC_PASSWORD secret is not configured."
+          ARD="/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart"
+
+          if [[ -z "$VNC_PASSWORD" ]]; then
+            echo "VNC_PASSWORD is empty"
             exit 1
           fi
 
-          ARD="/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart"
-
-          # Disable Spotlight indexing to reduce unnecessary runner load.
-          sudo mdutil -i off -a >/dev/null 2>&1 || true
-
-          # The GitHub runner already has an active GUI session.
           CONSOLE_USER="$(stat -f '%Su' /dev/console)"
 
           if [[ "$CONSOLE_USER" == "root" || "$CONSOLE_USER" == "loginwindow" ]]; then
-            echo "No active macOS GUI session."
+            echo "No active GUI session"
             exit 1
           fi
 
-          echo "Using console user: $CONSOLE_USER"
+          echo "Console user: $CONSOLE_USER"
 
-          # This is intentionally the same ARD activation sequence
-          # as the version where VNC authentication worked.
+          # Enable Remote Management for the existing GUI user.
           sudo "$ARD" \
             -activate \
             -configure \
-            -allowAccessFor \
-            -allUsers \
-            -privs \
-            -all
+            -access -on \
+            -allowAccessFor -allUsers \
+            -privs -all
 
           # Enable legacy VNC authentication.
           sudo "$ARD" \
@@ -53,61 +46,37 @@ jobs:
             -setvnclegacy \
             -vnclegacy yes
 
-          # Generate Apple's legacy VNC password hash.
-          VNC_HASH="$(
-            printf '%s\n' "$VNC_PASSWORD" |
-            perl -we '
-              BEGIN {
-                @k = unpack "C*", pack "H*",
-                  "1734516E8BA8C5E2FF1C39567390ADCA";
-              }
+          # Let Apple's kickstart utility create/configure the VNC
+          # password instead of manually writing VNCSettings.txt.
+          sudo "$ARD" \
+            -configure \
+            -clientopts \
+            -setvncpw \
+            -vncpw "$VNC_PASSWORD"
 
-              $_ = <>;
-              chomp;
-              s/^(.{8}).*/$1/;
-
-              @p = unpack "C*", $_;
-
-              foreach (@k) {
-                printf "%02X", $_ ^ (shift @p || 0);
-              }
-
-              print "\n";
-            '
-          )"
-
-          printf '%s\n' "$VNC_HASH" |
-            sudo tee /Library/Preferences/com.apple.VNCSettings.txt >/dev/null
-
-          unset VNC_HASH
-
-          sudo chmod 600 \
-            /Library/Preferences/com.apple.VNCSettings.txt
-
-          # Important:
-          # Keep -console from the original working workflow.
+          # Restart into the existing console session.
           sudo "$ARD" \
             -restart \
             -agent \
             -console
 
-          sleep 3
-
-          # Re-activate after restarting the agent.
-          sudo "$ARD" -activate
-
           sleep 5
 
-          # Confirm that the VNC listener exists.
+          sudo "$ARD" -activate
+
+          sleep 3
+
+          echo "VNC listener:"
+          sudo lsof -nP -iTCP:5900 -sTCP:LISTEN || true
+
           if ! nc -z 127.0.0.1 5900; then
-            echo "VNC server is not listening on port 5900."
+            echo "VNC server is not listening"
             exit 1
           fi
 
-          echo "VNC server is listening on port 5900."
+          echo "VNC ready."
 
-      - name: Install noVNC and Cloudflare
-        shell: bash
+      - name: Install noVNC
         run: |
           set -euo pipefail
 
@@ -123,8 +92,7 @@ jobs:
 
           brew install cloudflared
 
-      - name: Start Web Bridge and Cloudflare Tunnel
-        shell: bash
+      - name: Start noVNC
         run: |
           set -euo pipefail
 
@@ -133,18 +101,10 @@ jobs:
             --listen 6080 \
             >/tmp/novnc.log 2>&1 &
 
-          NOVNC_PID=$!
-
           sleep 3
 
-          if ! kill -0 "$NOVNC_PID" 2>/dev/null; then
-            echo "noVNC failed to start."
-            cat /tmp/novnc.log
-            exit 1
-          fi
-
           if ! nc -z 127.0.0.1 6080; then
-            echo "noVNC is not listening on port 6080."
+            cat /tmp/novnc.log
             exit 1
           fi
 
@@ -153,30 +113,24 @@ jobs:
             --logfile /tmp/cloudflared.log \
             >/tmp/cloudflared.stdout 2>&1 &
 
-          CLOUDFLARED_PID=$!
-
           TUNNEL_URL=""
 
-          for _ in {1..30}; do
-            sleep 1
-
+          for i in {1..30}; do
             TUNNEL_URL="$(
               grep -Eo \
                 'https://[A-Za-z0-9.-]+\.trycloudflare\.com' \
                 /tmp/cloudflared.log \
                 /tmp/cloudflared.stdout \
                 2>/dev/null |
-              head -n 1 ||
-              true
+              head -n 1 || true
             )"
 
-            if [[ -n "$TUNNEL_URL" ]]; then
-              break
-            fi
+            [[ -n "$TUNNEL_URL" ]] && break
+            sleep 1
           done
 
           if [[ -z "$TUNNEL_URL" ]]; then
-            echo "Cloudflare tunnel failed to start."
+            echo "Cloudflare tunnel failed"
             cat /tmp/cloudflared.log || true
             cat /tmp/cloudflared.stdout || true
             exit 1
@@ -184,18 +138,14 @@ jobs:
 
           echo
           echo "============================================================"
-          echo "Web Desktop:"
+          echo "OPEN THIS:"
           echo
           echo "$TUNNEL_URL/vnc.html?autoconnect=true"
           echo
-          echo "VNC Password: the value of the VNC_PASSWORD secret"
+          echo "VNC password: VNC_PASSWORD secret"
+          echo
+          echo "IMPORTANT: leave Username EMPTY"
           echo "============================================================"
 
-          # Keep background processes alive.
-          disown "$NOVNC_PID" || true
-          disown "$CLOUDFLARED_PID" || true
-
-      - name: Keep Session Active
-        shell: bash
-        run: |
-          sleep 14400
+      - name: Keep Session Alive
+        run: sleep 14400
