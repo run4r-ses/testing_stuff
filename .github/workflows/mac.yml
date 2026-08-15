@@ -9,115 +9,98 @@ jobs:
     timeout-minutes: 245
 
     steps:
-      - name: Configure macOS VNC
+      - name: Configure VNC for Existing GUI Session
         shell: bash
         run: |
           set -euo pipefail
 
           ARD="/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart"
-
           VNC_PASSWORD="meow"
-          MAC_PASSWORD="meow"
+
           CONSOLE_USER="$(stat -f '%Su' /dev/console)"
 
-          echo "Console user: $CONSOLE_USER"
-
           if [[ "$CONSOLE_USER" == "root" || "$CONSOLE_USER" == "loginwindow" ]]; then
-            echo "No active GUI session."
+            echo "No active console session."
             exit 1
           fi
 
-          # ----------------------------------------------------------
-          # Reset the existing runner account password.
+          echo "Using existing console user: $CONSOLE_USER"
+
+          # Do NOT create another account.
+          # Do NOT call sysadminctl.
+          # Do NOT use kickstart -setvncpw.
           #
-          # This is a diagnostic test. It is NOT normally required for
-          # legacy VNC authentication.
-          # ----------------------------------------------------------
-
-          sudo sysadminctl \
-            -resetPasswordFor "$CONSOLE_USER" \
-            -newPassword "$MAC_PASSWORD"
-
-          # ----------------------------------------------------------
-          # Disable any existing Screen Sharing configuration first.
-          # Remote Management and Screen Sharing cannot coexist.
-          # ----------------------------------------------------------
-
-          sudo "$ARD" -deactivate || true
-
-          # Stop existing Apple sharing processes.
-          sudo pkill -TERM screensharingd 2>/dev/null || true
-          sudo pkill -TERM ScreensharingAgent 2>/dev/null || true
-          sudo pkill -TERM ARDAgent 2>/dev/null || true
-
-          sleep 3
-
-          # ----------------------------------------------------------
-          # Enable Remote Management for the EXISTING runner user.
-          # ----------------------------------------------------------
+          # The following is the authentication configuration that
+          # previously worked on this runner.
 
           sudo "$ARD" \
             -activate \
             -configure \
-            -access -on \
             -allowAccessFor -allUsers \
             -privs -all
-
-          # ----------------------------------------------------------
-          # Enable legacy VNC authentication and explicitly set the
-          # VNC password.
-          #
-          # IMPORTANT:
-          # Do NOT manually write com.apple.VNCSettings.txt here.
-          # Let kickstart generate the value it expects.
-          # ----------------------------------------------------------
 
           sudo "$ARD" \
             -configure \
             -clientopts \
             -setvnclegacy \
-            -vnclegacy yes \
-            -setvncpw \
-            -vncpw "$VNC_PASSWORD"
+            -vnclegacy yes
 
-          # Do not require a user to approve the VNC connection.
-          sudo "$ARD" \
-            -configure \
-            -clientopts \
-            -setreqperm \
-            -reqperm no
+          # Apple's legacy VNC password format.
+          #
+          # Legacy VNC only uses the first 8 characters.
+          # "meow" is therefore completely safe for this test.
 
-          # ----------------------------------------------------------
-          # Restart the Apple Remote Management/VNC stack.
-          # ----------------------------------------------------------
+          VNC_HASH="$(
+            printf '%s\n' "$VNC_PASSWORD" |
+            perl -we '
+              BEGIN {
+                @k = unpack "C*", pack "H*",
+                  "1734516E8BA8C5E2FF1C39567390ADCA";
+              }
 
+              $_ = <>;
+              chomp;
+
+              s/^(.{8}).*/$1/;
+
+              @p = unpack "C*", $_;
+
+              foreach (@k) {
+                printf "%02X", $_ ^ (shift @p || 0);
+              }
+
+              print "\n";
+            '
+          )"
+
+          printf '%s\n' "$VNC_HASH" |
+            sudo tee /Library/Preferences/com.apple.VNCSettings.txt \
+            >/dev/null
+
+          sudo chmod 600 \
+            /Library/Preferences/com.apple.VNCSettings.txt
+
+          # Restart Apple's VNC/Remote Management stack.
           sudo "$ARD" -restart -agent -console
 
           sleep 8
 
-          # ----------------------------------------------------------
-          # Verify that Apple's VNC server is listening.
-          # ----------------------------------------------------------
-
           echo
           echo "VNC listener:"
-          sudo lsof -nP -iTCP:5900 -sTCP:LISTEN || true
+          sudo lsof -nP -iTCP:5900 -sTCP:LISTEN
 
           if ! nc -z 127.0.0.1 5900; then
-            echo "ERROR: Nothing is listening on TCP 5900."
+            echo "VNC server is not listening."
             exit 1
           fi
 
           echo
           echo "============================================================"
-          echo "macOS VNC is ready"
+          echo "VNC READY"
           echo "============================================================"
-          echo
-          echo "VNC username: runner"
-          echo "VNC password: meow"
-          echo
-          echo "macOS account password was also reset to: meow"
-          echo
+          echo "Console user : $CONSOLE_USER"
+          echo "VNC password : meow"
+          echo "VNC port     : 5900"
           echo "============================================================"
 
       - name: Install noVNC and Cloudflare
@@ -150,7 +133,6 @@ jobs:
           sleep 3
 
           if ! nc -z 127.0.0.1 6080; then
-            echo "noVNC failed to start:"
             cat /tmp/novnc.log
             exit 1
           fi
@@ -178,15 +160,12 @@ jobs:
               true
             )"
 
-            if [[ -n "$TUNNEL_URL" ]]; then
-              break
-            fi
-
+            [[ -n "$TUNNEL_URL" ]] && break
             sleep 1
           done
 
           if [[ -z "$TUNNEL_URL" ]]; then
-            echo "Cloudflare tunnel failed."
+            echo "Could not obtain Cloudflare URL."
             cat /tmp/cloudflared.log || true
             cat /tmp/cloudflared.stdout || true
             exit 1
@@ -199,8 +178,7 @@ jobs:
           echo
           echo "$TUNNEL_URL/vnc.html?autoconnect=true"
           echo
-          echo "Username: runner"
-          echo "Password: meow"
+          echo "VNC password: meow"
           echo
           echo "============================================================"
 
