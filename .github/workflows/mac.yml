@@ -38,6 +38,9 @@ jobs:
         run: |
           set -euo pipefail
 
+          /opt/homebrew/bin/x11vnc -help 2>&1 | sed -n '/MACOSX/,/MISC/p'
+          /opt/homebrew/bin/x11vnc -help 2>&1 | grep -A100 -B10 -Ei 'macosx|macos|CGDisplay|CGL|framebuffer'
+
           echo "============================================================"
           echo "Starting x11vnc native macOS framebuffer"
           echo "============================================================"
