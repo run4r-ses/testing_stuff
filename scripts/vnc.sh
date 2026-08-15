@@ -71,6 +71,9 @@ sudo "$ARD" \
   -setvnclegacy \
   -vnclegacy yes
 
+sudo defaults write /Library/Preferences/com.apple.RemoteManagement VNCOnlyLocalConnections -bool true 2>/dev/null || true
+sudo defaults write com.apple.ScreenSharing encryptRFBDataStream -bool false 2>/dev/null || true
+
 sudo "$ARD" \
   -restart \
   -agent \

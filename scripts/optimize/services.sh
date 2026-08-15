@@ -30,3 +30,10 @@ defaults write com.apple.appleseed.FeedbackAssistant Autolaunch -bool false
 
 # Disable Audio UI feedback effects
 defaults write NSGlobalDomain "com.apple.sound.uiaudio.enabled" -int 0
+
+# Optimize TCP network stack for low-latency VNC streaming (disable delayed ACK)
+echo "- Optimizing TCP network stack for low-latency VNC"
+sudo sysctl -w net.inet.tcp.delayed_ack=0 2>/dev/null || true
+sudo sysctl -w net.inet.tcp.mptcp.enable=0 2>/dev/null || true
+sudo sysctl -w net.inet.tcp.sendspace=1048576 2>/dev/null || true
+sudo sysctl -w net.inet.tcp.recvspace=1048576 2>/dev/null || true

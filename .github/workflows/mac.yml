@@ -19,8 +19,8 @@ jobs:
       - name: Install dependencies
         shell: bash
         run: |
-          echo "- Installing cloudflared"
-          brew install cloudflared
+          echo "- Installing cloudflared and displayplacer"
+          brew install cloudflared displayplacer
 
           echo "- Installing numpy for websockify"
           pip3 install --break-system-packages numpy 2>/dev/null || pip3 install numpy 2>/dev/null || true

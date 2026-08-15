@@ -6,8 +6,8 @@ echo "* Streaming live tunnel and noVNC logs"
 NOVNC_PID="$(cat /tmp/novnc.pid 2>/dev/null || echo "")"
 CLOUDFLARED_PID="$(cat /tmp/cloudflared.pid 2>/dev/null || echo "")"
 
-# Start following both logs live in the background
-tail -n +1 -F /tmp/novnc.log /tmp/cloudflared.log &
+# Start following all logs live in the background
+tail -n +1 -F /tmp/novnc.log /tmp/cloudflared.log /tmp/cloudflared.stdout &
 TAIL_PID=$!
 
 cleanup() {

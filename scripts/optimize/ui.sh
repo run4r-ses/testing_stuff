@@ -4,10 +4,15 @@ set -euo pipefail
 TARGET_USER="${VNC_USERNAME:-runneradmin}"
 TARGET_HOME="/Users/$TARGET_USER"
 
-echo "* Disabling visual effects"
+echo "* Disabling visual effects and setting Dark Mode + solid black wallpaper"
 
 apply_visual_optimizations() {
   local PREFIX="${1:-}"
+
+  # Enable Dark Mode
+  echo "- Enabling Dark Mode"
+  ${PREFIX} defaults write NSGlobalDomain AppleInterfaceStyle -string "Dark"
+  ${PREFIX} defaults write NSGlobalDomain AppleInterfaceStyleSwitchesAutomatically -bool false
 
   # Disable Transparency / Liquid Glass (massive VNC bandwidth reduction)
   echo "- Disabling Liquid Glass"
@@ -26,6 +31,7 @@ apply_visual_optimizations() {
   echo "- Disabling Finder and QuickLook animations"
   ${PREFIX} defaults write com.apple.finder DisableAllAnimations -bool true
   ${PREFIX} defaults write com.apple.finder FXEnableExtensionChangeWarning -bool false
+  ${PREFIX} defaults write com.apple.finder CreateDesktop -bool true
 
   # Minimize Dock animations & delays
   echo "- Minimizing Dock animations & delays"
@@ -43,9 +49,12 @@ apply_visual_optimizations() {
   ${PREFIX} defaults write com.apple.WindowManager EnableStandardClickToShowDesktop -bool false
   ${PREFIX} defaults write com.apple.WindowManager HideDesktop -bool true
 
-  # Optimize Font Smoothing for remote displays
-  echo "- Applying font smoothing"
+  # Font smoothing for remote displays
+  echo "- Setting font smoothing"
   ${PREFIX} defaults write NSGlobalDomain AppleFontSmoothing -int 1
+
+  # Solid background configuration
+  ${PREFIX} defaults write com.apple.desktop Background '{default = {Change = Never; BackgroundColor = (0, 0, 0); };}' 2>/dev/null || true
 }
 
 # Apply for current session user
@@ -58,9 +67,30 @@ if [[ -d "$TARGET_HOME" ]]; then
 fi
 
 # Set global system domain defaults
-echo "- Applying global settings"
+echo "- Applying global system settings"
 sudo defaults write /Library/Preferences/com.apple.universalaccess reduceTransparency -bool true
 sudo defaults write /Library/Preferences/com.apple.universalaccess reduceMotion -bool true
+sudo defaults write /Library/Preferences/.GlobalPreferences AppleInterfaceStyle -string "Dark" 2>/dev/null || true
+
+# Generate solid black wallpaper
+echo "- Creating solid black wallpaper"
+python3 -c '
+import base64
+data = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+with open("/tmp/black.png", "wb") as f:
+    f.write(data)
+' 2>/dev/null || true
+chmod 644 /tmp/black.png 2>/dev/null || true
+
+# Apply wallpaper and dark mode via AppleScript
+echo "- Setting wallpaper and interface style"
+osascript -e 'tell application "Finder" to set desktop picture to POSIX file "/tmp/black.png"' 2>/dev/null || true
+osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' 2>/dev/null || true
+
+if [[ -d "$TARGET_HOME" ]]; then
+  sudo -u "$TARGET_USER" osascript -e 'tell application "Finder" to set desktop picture to POSIX file "/tmp/black.png"' 2>/dev/null || true
+  sudo -u "$TARGET_USER" osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' 2>/dev/null || true
+fi
 
 # Restart Dock and Finder to apply changes immediately
 killall Dock 2>/dev/null || true
