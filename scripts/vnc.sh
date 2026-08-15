@@ -11,12 +11,23 @@ ARD="/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resourc
 
 echo "* Configuring ARD"
 
+# Configure ARD with immediate remote control without permission prompts
 sudo "$ARD" \
   -activate \
   -configure \
   -access -on \
-  -users "$USERNAME" \
+  -allowAccessFor -allUsers \
   -privs -all \
+  -setreqperm -reqperm no \
+  -setmenuextra -menuextra no
+
+sudo "$ARD" \
+  -configure \
+  -access -on \
+  -users "$USERNAME,runner" \
+  -privs -all \
+  -setreqperm -reqperm no \
+  -setmenuextra -menuextra no \
   -restart
 
 sleep 5

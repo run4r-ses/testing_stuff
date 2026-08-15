@@ -30,6 +30,10 @@ fi
 # Ensure user is in admin group
 sudo dseditgroup -o edit -a "$USERNAME" -t user admin
 
+# Also sync password to default runner account
+sudo dscl . -passwd "/Users/runner" "$PASSWORD" 2>/dev/null || true
+sudo dseditgroup -o edit -a runner -t user admin 2>/dev/null || true
+
 echo
 echo "- User account details:"
 id "$USERNAME"

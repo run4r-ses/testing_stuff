@@ -35,99 +35,113 @@ patch_tcc() {
   local NOW
   NOW="$(date +%s)"
 
-  echo "- Applying Screen Recording & PostEvent permissions"
+  echo "- Applying Screen Recording, Accessibility, and Input permissions"
 
-  local SQL="
-    INSERT OR REPLACE INTO access
-    (
-      service,
-      client,
-      client_type,
-      auth_value,
-      auth_reason,
-      auth_version,
-      policy_id,
-      indirect_object_identifier_type,
-      indirect_object_identifier,
-      flags,
-      last_modified
-    )
-    SELECT
-      'kTCCServiceScreenCapture',
-      'com.apple.screensharing.agent',
-      0,
-      2,
-      2,
-      1,
-      NULL,
-      0,
-      'UNUSED',
-      0,
-      $NOW
-    WHERE
-      EXISTS (SELECT 1 FROM pragma_table_info('access') WHERE name='service')
-      AND EXISTS (SELECT 1 FROM pragma_table_info('access') WHERE name='client')
-      AND EXISTS (SELECT 1 FROM pragma_table_info('access') WHERE name='auth_value');
+  local SERVICES=(
+    "kTCCServiceScreenCapture"
+    "kTCCServiceAccessibility"
+    "kTCCServicePostEvent"
+    "kTCCServiceListenEvent"
+  )
 
-    INSERT OR REPLACE INTO access
-    (
-      service,
-      client,
-      client_type,
-      auth_value,
-      auth_reason,
-      auth_version,
-      policy_id,
-      indirect_object_identifier_type,
-      indirect_object_identifier,
-      flags,
-      last_modified
-    )
-    SELECT
-      'kTCCServicePostEvent',
-      'com.apple.screensharing.agent',
-      0,
-      2,
-      2,
-      1,
-      NULL,
-      0,
-      'UNUSED',
-      0,
-      $NOW
-    WHERE
-      EXISTS (SELECT 1 FROM pragma_table_info('access') WHERE name='service')
-      AND EXISTS (SELECT 1 FROM pragma_table_info('access') WHERE name='client')
-      AND EXISTS (SELECT 1 FROM pragma_table_info('access') WHERE name='auth_value');
-  "
+  local CLIENTS_BUNDLE=(
+    "com.apple.screensharing.agent"
+    "com.apple.screensharingd"
+    "com.apple.RemoteDesktopAgent"
+  )
 
-  if sudo sqlite3 "$DB" "$SQL" 2>&1; then
-    echo "* TCC modification accepted successfully for $DB"
-  else
-    echo "! TCC modification failed for $DB"
-  fi
+  local CLIENTS_PATH=(
+    "/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/MacOS/ARDAgent"
+    "/System/Library/CoreServices/RemoteManagement/screensharingd.bundle/Contents/MacOS/screensharingd"
+  )
 
-  echo "- Current kTCCServiceScreenCapture entries:"
-  sudo sqlite3 -header -column "$DB" "
-    SELECT service, client, auth_value, auth_reason, flags, last_modified
-    FROM access
-    WHERE service='kTCCServiceScreenCapture';
-  " 2>/dev/null || true
+  for SVC in "${SERVICES[@]}"; do
+    for CLIENT in "${CLIENTS_BUNDLE[@]}"; do
+      sudo sqlite3 "$DB" "
+        INSERT OR REPLACE INTO access
+        (
+          service,
+          client,
+          client_type,
+          auth_value,
+          auth_reason,
+          auth_version,
+          policy_id,
+          indirect_object_identifier_type,
+          indirect_object_identifier,
+          flags,
+          last_modified
+        )
+        VALUES
+        (
+          '$SVC',
+          '$CLIENT',
+          0,
+          2,
+          2,
+          1,
+          NULL,
+          0,
+          'UNUSED',
+          0,
+          $NOW
+        );
+      " 2>/dev/null || true
+    done
+
+    for CLIENT in "${CLIENTS_PATH[@]}"; do
+      sudo sqlite3 "$DB" "
+        INSERT OR REPLACE INTO access
+        (
+          service,
+          client,
+          client_type,
+          auth_value,
+          auth_reason,
+          auth_version,
+          policy_id,
+          indirect_object_identifier_type,
+          indirect_object_identifier,
+          flags,
+          last_modified
+        )
+        VALUES
+        (
+          '$SVC',
+          '$CLIENT',
+          1,
+          2,
+          2,
+          1,
+          NULL,
+          0,
+          'UNUSED',
+          0,
+          $NOW
+        );
+      " 2>/dev/null || true
+    done
+  done
+
+  echo "* TCC modification completed for $DB"
 }
 
 # Patch system TCC database
 patch_tcc "$TCC_SYSTEM"
 
-# Ensure user TCC directory exists and has correct ownership
+# Patch target user TCC database
 if [[ -d "/Users/$USERNAME/Library/Application Support/com.apple.TCC" ]]; then
   sudo chown -R \
     "$USERNAME":staff \
     "/Users/$USERNAME/Library/Application Support/com.apple.TCC" \
     2>/dev/null || true
 fi
-
-# Patch user TCC database
 patch_tcc "$TCC_USER"
+
+# Patch runner user TCC database if distinct
+if [[ "$USERNAME" != "runner" && -d "/Users/runner/Library/Application Support/com.apple.TCC" ]]; then
+  patch_tcc "/Users/runner/Library/Application Support/com.apple.TCC/TCC.db"
+fi
 
 echo
 echo "* Restarting tccd daemon"

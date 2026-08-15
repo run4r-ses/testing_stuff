@@ -35,6 +35,8 @@ echo "* noVNC is listening on http://127.0.0.1:6080"
 echo "* Starting Cloudflare Quick Tunnel"
 
 cloudflared tunnel \
+  --protocol http2 \
+  --no-autoupdate \
   --url http://127.0.0.1:6080 \
   --logfile /tmp/cloudflared.log \
   >/tmp/cloudflared.stdout 2>&1 &
