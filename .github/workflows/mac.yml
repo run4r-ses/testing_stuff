@@ -9,56 +9,59 @@ jobs:
     timeout-minutes: 245
 
     steps:
-      - name: Configure Apple Remote Management and VNC
+      - name: Enable Native macOS Screen Sharing
         shell: bash
+        env:
+          VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
         run: |
           set -euo pipefail
 
           ARD="/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart"
+          SCREENSHARING_PLIST="/System/Library/LaunchDaemons/com.apple.screensharing.plist"
 
-          # The GitHub-hosted runner already has a GUI session.
-          CONSOLE_USER="$(stat -f '%Su' /dev/console)"
-
-          if [[ "$CONSOLE_USER" == "root" || "$CONSOLE_USER" == "loginwindow" ]]; then
-            echo "No active console GUI session."
+          if [[ -z "${VNC_PASSWORD:-}" ]]; then
+            echo "VNC_PASSWORD secret is empty."
             exit 1
           fi
 
-          echo "Existing console user: $CONSOLE_USER"
+          CONSOLE_USER="$(stat -f '%Su' /dev/console)"
 
-          # Reduce unnecessary disk/CPU activity.
-          sudo mdutil -i off -a >/dev/null 2>&1 || true
-
-          # ------------------------------------------------------------
-          # Create the account used by Apple's legacy VNC authentication.
-          # This is intentionally retained because this is the setup
-          # that previously authenticated successfully.
-          # ------------------------------------------------------------
-
-          if ! dscl . -read /Users/runneradmin >/dev/null 2>&1; then
-            sudo dscl . -create /Users/runneradmin
-            sudo dscl . -create /Users/runneradmin UserShell /bin/bash
-            sudo dscl . -create /Users/runneradmin RealName "Runner Admin"
-            sudo dscl . -create /Users/runneradmin UniqueID 1001
-            sudo dscl . -create /Users/runneradmin PrimaryGroupID 80
-            sudo dscl . -create /Users/runneradmin NFSHomeDirectory /Users/runneradmin
-            sudo createhomedir -c -u runneradmin >/dev/null 2>&1 || true
+          if [[ "$CONSOLE_USER" == "root" || "$CONSOLE_USER" == "loginwindow" ]]; then
+            echo "No active GUI session."
+            exit 1
           fi
 
-          sudo dscl . -passwd /Users/runneradmin "meow"
-          sudo dscl . -append /Groups/admin GroupMembership runneradmin 2>/dev/null || true
+          echo "Console user: $CONSOLE_USER"
 
           # ------------------------------------------------------------
-          # Apple Remote Management
+          # 1. Completely disable Remote Management.
+          #
+          # Apple does not allow Remote Management and Screen Sharing
+          # to be enabled simultaneously.
           # ------------------------------------------------------------
 
-          sudo "$ARD" \
-            -activate \
-            -configure \
-            -allowAccessFor \
-            -allUsers \
-            -privs \
-            -all
+          sudo "$ARD" -deactivate || true
+
+          # ------------------------------------------------------------
+          # 2. Enable Apple's native Screen Sharing launch daemon.
+          # ------------------------------------------------------------
+
+          sudo launchctl enable system/com.apple.screensharing || true
+
+          # Unload an existing instance if present.
+          sudo launchctl bootout system/com.apple.screensharing 2>/dev/null || true
+
+          # Start Screen Sharing.
+          sudo launchctl bootstrap system "$SCREENSHARING_PLIST"
+
+          sleep 5
+
+          # ------------------------------------------------------------
+          # 3. Configure the legacy VNC password.
+          #
+          # Apple VNC authentication uses the legacy 8-character
+          # password mechanism.
+          # ------------------------------------------------------------
 
           sudo "$ARD" \
             -configure \
@@ -66,71 +69,45 @@ jobs:
             -setvnclegacy \
             -vnclegacy yes
 
-          # ------------------------------------------------------------
-          # Generate the legacy Apple VNC password file.
-          #
-          # Legacy VNC uses only the first 8 password characters.
-          # ------------------------------------------------------------
-
-          VNC_HASH="$(
-            printf '%s\n' "meow" |
-            perl -we '
-              BEGIN {
-                @k = unpack "C*", pack "H*",
-                  "1734516E8BA8C5E2FF1C39567390ADCA";
-              }
-
-              $_ = <>;
-              chomp;
-
-              s/^(.{8}).*/$1/;
-
-              @p = unpack "C*", $_;
-
-              foreach (@k) {
-                printf "%02X", $_ ^ (shift @p || 0);
-              }
-
-              print "\n";
-            '
-          )"
-
-          printf '%s\n' "$VNC_HASH" |
-            sudo tee /Library/Preferences/com.apple.VNCSettings.txt >/dev/null
-
-          unset VNC_HASH
-
-          sudo chmod 600 \
-            /Library/Preferences/com.apple.VNCSettings.txt
-
-          # ------------------------------------------------------------
-          # Restart ARD in the existing console session.
-          # Keep this sequence identical to the configuration that
-          # previously authenticated successfully.
-          # ------------------------------------------------------------
-
           sudo "$ARD" \
-            -restart \
-            -agent \
-            -console
+            -configure \
+            -clientopts \
+            -setvncpw \
+            -vncpw "$VNC_PASSWORD"
+
+          # ------------------------------------------------------------
+          # 4. Make sure Screen Sharing is actually running.
+          # ------------------------------------------------------------
 
           sleep 5
 
-          sudo "$ARD" -activate
-
-          sleep 5
+          echo
+          echo "Screen Sharing service:"
+          sudo launchctl print system/com.apple.screensharing 2>/dev/null || true
 
           echo
           echo "VNC listener:"
           sudo lsof -nP -iTCP:5900 -sTCP:LISTEN || true
 
           if ! nc -z 127.0.0.1 5900; then
-            echo "VNC server is not listening on port 5900."
+            echo
+            echo "Screen Sharing is NOT listening on TCP 5900."
+            echo
+            echo "Recent screensharing logs:"
+            log show \
+              --last 2m \
+              --style compact \
+              --predicate 'process == "screensharingd" OR process == "screensharingd"' \
+              2>/dev/null |
+              tail -100 || true
+
             exit 1
           fi
 
           echo
-          echo "Apple VNC is listening on port 5900."
+          echo "============================================================"
+          echo "Native macOS Screen Sharing is listening on :5900"
+          echo "============================================================"
 
       - name: Install noVNC and Cloudflare
         shell: bash
@@ -154,10 +131,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          # ------------------------------------------------------------
-          # VNC -> WebSocket bridge
-          # ------------------------------------------------------------
-
           /tmp/novnc/utils/novnc_proxy \
             --vnc 127.0.0.1:5900 \
             --listen 6080 \
@@ -174,14 +147,10 @@ jobs:
           fi
 
           if ! nc -z 127.0.0.1 6080; then
-            echo "noVNC is not listening on port 6080."
+            echo "noVNC is not listening on :6080."
             cat /tmp/novnc.log
             exit 1
           fi
-
-          # ------------------------------------------------------------
-          # Cloudflare Quick Tunnel
-          # ------------------------------------------------------------
 
           cloudflared tunnel \
             --url http://127.0.0.1:6080 \
@@ -211,7 +180,7 @@ jobs:
           done
 
           if [[ -z "$TUNNEL_URL" ]]; then
-            echo "Cloudflare Quick Tunnel failed to start."
+            echo "Cloudflare tunnel failed."
             cat /tmp/cloudflared.log || true
             cat /tmp/cloudflared.stdout || true
             exit 1
@@ -224,12 +193,11 @@ jobs:
           echo
           echo "$TUNNEL_URL/vnc.html?autoconnect=true"
           echo
-          echo "Username: runneradmin"
-          echo "Password: meow"
+          echo "Username: leave blank"
+          echo "Password: VNC_PASSWORD secret"
           echo
           echo "============================================================"
 
-          # Prevent shell cleanup from killing the processes.
           disown "$NOVNC_PID" || true
           disown "$CLOUDFLARED_PID" || true
 
