@@ -7,30 +7,32 @@ jobs:
   macos-web-vnc:
     runs-on: macos-latest
     steps:
-      - name: Configure Remote Management & Display Permissions
+      - name: Create Admin User & Configure Remote Management
         env:
           VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
         run: |
-          # 1. Prevent display and system sleep
+          # 1. Prevent virtual display, disk, and system sleep
           sudo pmset -a displaysleep 0 sleep 0 disksleep 0
-          caffeinate -u -d -s -t 14400 &
+          caffeinate -u -d -m -s -t 14400 &
 
-          # 2. Set password for the existing logged-in 'runner' account
-          echo "$VNC_PASSWORD" | sudo dscl . -passwd /Users/runner
+          # 2. Create runneradmin account
+          sudo dscl . -create /Users/runneradmin
+          sudo dscl . -create /Users/runneradmin UserShell /bin/bash
+          sudo dscl . -create /Users/runneradmin RealName "Runner Admin"
+          sudo dscl . -create /Users/runneradmin UniqueID 1001
+          sudo dscl . -create /Users/runneradmin PrimaryGroupID 80
+          sudo dscl . -create /Users/runneradmin NFSHomeDirectory /Users/runneradmin
+          sudo dscl . -passwd /Users/runneradmin "$VNC_PASSWORD"
+          sudo createhomedir -c -u runneradmin > /dev/null 2>&1 || true
+          sudo dscl . -append /Groups/admin GroupMembership runneradmin
 
-          # 3. Inject Screen Recording & Accessibility permissions into TCC database
-          TCC_DB="/Library/Application Support/com.apple.TCC/TCC.db"
-          sudo sqlite3 "$TCC_DB" "INSERT OR REPLACE INTO access VALUES('kTCCServiceScreenCapture','com.apple.screensharing.agent',0,2,4,1,NULL,NULL,0,'UNUSED',NULL,0,1664219985);"
-          sudo sqlite3 "$TCC_DB" "INSERT OR REPLACE INTO access VALUES('kTCCServiceScreenCapture','com.apple.RemoteDesktopAgent',0,2,4,1,NULL,NULL,0,'UNUSED',NULL,0,1664219985);"
-          sudo sqlite3 "$TCC_DB" "INSERT OR REPLACE INTO access VALUES('kTCCServiceAccessibility','com.apple.RemoteDesktopAgent',0,2,4,1,NULL,NULL,0,'UNUSED',NULL,0,1664219985);"
-
-          # 4. Configure Apple Remote Desktop / Screen Sharing
+          # 3. Configure Apple Remote Management
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate -configure -allowAccessFor -allUsers -privs -all
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -configure -clientopts -setvnclegacy -vnclegacy yes
 
-          # 5. Set legacy VNC password hash
+          # 4. Generate legacy VNC password hash
           echo "$VNC_PASSWORD" | perl -we '
             BEGIN { @k = unpack "C*", pack "H*", "1734516E8BA8C5E2FF1C39567390ADCA"};
             $_ = <>; chomp; s/^(.{8}).*/$1/;
@@ -40,11 +42,15 @@ jobs:
           ' | sudo tee /Library/Preferences/com.apple.VNCSettings.txt > /dev/null
           sudo chmod 600 /Library/Preferences/com.apple.VNCSettings.txt
 
-          # 6. Restart ARD Agent in the active console session
+          # 5. Restart agent into console session
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart -agent -console
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate
 
-      - name: Install noVNC & Cloudflare Tunnel
+          # 6. Switch graphical session to runneradmin and wake WindowServer
+          sudo /System/Library/CoreServices/Menu\ Extras/User.menu/Contents/Resources/CGSession -switchToID 1001 || true
+          osascript -e 'tell application "System Events" to key code 53' || true
+
+      - name: Install noVNC and Cloudflare Tunnel
         run: |
           git clone --depth 1 https://github.com/novnc/noVNC.git /tmp/novnc
           git clone --depth 1 https://github.com/novnc/websockify /tmp/novnc/utils/websockify
@@ -52,20 +58,21 @@ jobs:
 
       - name: Launch Web Bridge & Cloudflare Tunnel
         run: |
-          # Start websockify proxy (VNC 5900 -> WS 6080)
-          /tmp/novnc/utils/novnc_proxy --vnc localhost:5900 --listen 6080 > /tmp/novnc.log 2>&1 &
+          # Proxy VNC port 5900 to WebSockets port 6080
+          /tmp/novnc/utils/novnc_proxy --vnc localhost:5900 --listen 6080 --web /tmp/novnc > /tmp/novnc.log 2>&1 &
 
-          # Start Cloudflare Tunnel
+          # Start Cloudflare Quick Tunnel
           cloudflared tunnel --url http://localhost:6080 --logfile /tmp/cloudflared.log &
 
-          # Wait for tunnel initialization
-          sleep 10
+          sleep 8
 
           TUNNEL_URL=$(grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' /tmp/cloudflared.log | head -n 1)
 
           echo "================================================================="
-          echo "Web Desktop URL: $TUNNEL_URL/vnc.html?autoconnect=true"
-          echo "VNC Password: (Your configured VNC_PASSWORD secret)"
+          echo "Web Desktop Link:"
+          echo "$TUNNEL_URL/vnc.html?autoconnect=true&resize=remote"
+          echo "-----------------------------------------------------------------"
+          echo "Password: (Your configured VNC_PASSWORD secret)"
           echo "================================================================="
 
       - name: Keep Session Active
