@@ -1,57 +1,175 @@
-name: macOS GUI in Browser (noVNC)
+name: macOS GUI in Browser (TCC VNC Test)
 
 on:
   workflow_dispatch:
 
 jobs:
-  macos-web-vnc:
+  macos-vnc:
     runs-on: macos-latest
-    timeout-minutes: 245
+    timeout-minutes: 370
 
     steps:
-      - name: Configure VNC for Existing GUI Session
+      - name: Create GUI User and Configure VNC
         shell: bash
         run: |
           set -euo pipefail
 
+          USERNAME="runneradmin"
+          PASSWORD="meow"
+          USER_UID="502"
+
           ARD="/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart"
-          VNC_PASSWORD="meow"
 
-          CONSOLE_USER="$(stat -f '%Su' /dev/console)"
+          echo "=============================================="
+          echo "Creating VNC GUI user"
+          echo "=============================================="
 
-          if [[ "$CONSOLE_USER" == "root" || "$CONSOLE_USER" == "loginwindow" ]]; then
-            echo "No active console session."
-            exit 1
+          # Remove an existing test account from a previous attempt.
+          if id "$USERNAME" >/dev/null 2>&1; then
+            echo "$USERNAME already exists"
+          else
+            sudo dscl . -create "/Users/$USERNAME"
+            sudo dscl . -create "/Users/$USERNAME" UserShell /bin/bash
+            sudo dscl . -create "/Users/$USERNAME" RealName "Runner Admin"
+            sudo dscl . -create "/Users/$USERNAME" UniqueID "$USER_UID"
+            sudo dscl . -create "/Users/$USERNAME" PrimaryGroupID 20
+            sudo dscl . -create "/Users/$USERNAME" NFSHomeDirectory "/Users/$USERNAME"
+            sudo dscl . -passwd "/Users/$USERNAME" "$PASSWORD"
+
+            sudo createhomedir -c -u "$USERNAME" >/dev/null 2>&1 || true
           fi
 
-          echo "Using existing console user: $CONSOLE_USER"
+          sudo dseditgroup -o edit -a "$USERNAME" -t user admin
 
-          # Do NOT create another account.
-          # Do NOT call sysadminctl.
-          # Do NOT use kickstart -setvncpw.
+          echo "User:"
+          id "$USERNAME"
+
+          echo
+          echo "=============================================="
+          echo "Preparing GUI session"
+          echo "=============================================="
+
+          # Attempt to configure automatic login.
           #
-          # The following is the authentication configuration that
-          # previously worked on this runner.
+          # This mirrors the reference script. Whether the runner image
+          # permits automatic login is determined by the image's policy.
+          sudo defaults write \
+            /Library/Preferences/com.apple.loginwindow \
+            autoLoginUser \
+            "$USERNAME"
+
+          # Attempt to switch the currently running GUI session.
+          # Failure is intentionally non-fatal because the reference
+          # script treats this as best-effort.
+          sudo /System/Library/CoreServices/Menu\ Extras/User.menu/Contents/Resources/CGSession \
+            -switchToUserID "$USER_UID" \
+            2>/tmp/cgsession.err || true
+
+          sleep 5
+
+          echo
+          echo "Console user:"
+          stat -f '%Su' /dev/console
+
+          echo
+          echo "Logged-in users:"
+          who
+
+          echo
+          echo "=============================================="
+          echo "Applying TCC experiment"
+          echo "=============================================="
+
+          NOW="$(date +%s)"
+
+          # Try both system and per-user TCC databases, matching the
+          # reference recipe.
+          #
+          # macOS 26 may reject these writes; that is expected to be
+          # informative rather than fatal.
+
+          TCC_DATABASES=(
+            "/Library/Application Support/com.apple.TCC/TCC.db"
+            "/Users/$USERNAME/Library/Application Support/com.apple.TCC/TCC.db"
+          )
+
+          for DB in "${TCC_DATABASES[@]}"; do
+            if [[ -f "$DB" ]]; then
+              echo "TCC database: $DB"
+
+              sudo sqlite3 "$DB" "
+                INSERT OR REPLACE INTO access
+                VALUES(
+                  'kTCCServiceScreenCapture',
+                  'com.apple.screensharing',
+                  1,2,4,1,NULL,NULL,0,'UNUSED',NULL,0,$NOW
+                );
+              " 2>&1 || true
+
+              sudo sqlite3 "$DB" "
+                INSERT OR REPLACE INTO access
+                VALUES(
+                  'kTCCServiceListenEvent',
+                  'com.apple.screensharing',
+                  1,2,4,1,NULL,NULL,0,'UNUSED',NULL,0,$NOW
+                );
+              " 2>&1 || true
+
+              sudo sqlite3 "$DB" "
+                INSERT OR REPLACE INTO access
+                VALUES(
+                  'kTCCServicePostEvent',
+                  'com.apple.screensharing',
+                  1,2,4,1,NULL,NULL,0,'UNUSED',NULL,0,$NOW
+                );
+              " 2>&1 || true
+
+              sudo sqlite3 "$DB" "
+                INSERT OR REPLACE INTO access
+                VALUES(
+                  'kTCCServiceAccessibility',
+                  'com.apple.screensharing',
+                  1,2,4,1,NULL,NULL,0,'UNUSED',NULL,0,$NOW
+                );
+              " 2>&1 || true
+
+            else
+              echo "No TCC database at: $DB"
+            fi
+          done
+
+          # Restart TCC so that any accepted database changes are
+          # reloaded.
+          sudo killall -9 tccd 2>/dev/null || true
+
+          sleep 3
+
+          echo
+          echo "=============================================="
+          echo "Configuring Apple Remote Management"
+          echo "=============================================="
 
           sudo "$ARD" \
             -activate \
             -configure \
-            -allowAccessFor -allUsers \
-            -privs -all
+            -access -on \
+            -users "$USERNAME" \
+            -privs -all \
+            -restart
 
-          sudo "$ARD" \
-            -configure \
-            -clientopts \
-            -setvnclegacy \
-            -vnclegacy yes
+          sleep 5
 
-          # Apple's legacy VNC password format.
-          #
-          # Legacy VNC only uses the first 8 characters.
-          # "meow" is therefore completely safe for this test.
+          echo
+          echo "=============================================="
+          echo "Configuring legacy VNC"
+          echo "=============================================="
+
+          # Do NOT use kickstart -setvncpw here.
+          # We are deliberately reproducing the manually-generated
+          # legacy VNCSettings mechanism from the known-working setup.
 
           VNC_HASH="$(
-            printf '%s\n' "$VNC_PASSWORD" |
+            printf '%s\n' "$PASSWORD" |
             perl -we '
               BEGIN {
                 @k = unpack "C*", pack "H*",
@@ -80,28 +198,38 @@ jobs:
           sudo chmod 600 \
             /Library/Preferences/com.apple.VNCSettings.txt
 
-          # Restart Apple's VNC/Remote Management stack.
-          sudo "$ARD" -restart -agent -console
+          sudo "$ARD" \
+            -configure \
+            -clientopts \
+            -setvnclegacy \
+            -vnclegacy yes
 
-          sleep 8
+          sudo "$ARD" \
+            -restart \
+            -agent \
+            -console
+
+          sleep 10
+
+          echo
+          echo "=============================================="
+          echo "VNC status"
+          echo "=============================================="
+
+          echo "Console user:"
+          stat -f '%Su' /dev/console
 
           echo
           echo "VNC listener:"
-          sudo lsof -nP -iTCP:5900 -sTCP:LISTEN
+          sudo lsof -nP -iTCP:5900 -sTCP:LISTEN || true
 
           if ! nc -z 127.0.0.1 5900; then
-            echo "VNC server is not listening."
+            echo "ERROR: VNC is not listening on TCP 5900."
             exit 1
           fi
 
           echo
-          echo "============================================================"
-          echo "VNC READY"
-          echo "============================================================"
-          echo "Console user : $CONSOLE_USER"
-          echo "VNC password : meow"
-          echo "VNC port     : 5900"
-          echo "============================================================"
+          echo "VNC is listening."
 
       - name: Install noVNC and Cloudflare
         shell: bash
@@ -120,32 +248,42 @@ jobs:
 
           brew install cloudflared
 
-      - name: Start noVNC
+      - name: Start noVNC and Cloudflare
         shell: bash
         run: |
           set -euo pipefail
+
+          echo "Starting noVNC..."
 
           /tmp/novnc/utils/novnc_proxy \
             --vnc 127.0.0.1:5900 \
             --listen 6080 \
             >/tmp/novnc.log 2>&1 &
 
-          sleep 3
+          NOVNC_PID=$!
 
-          if ! nc -z 127.0.0.1 6080; then
+          sleep 4
+
+          if ! kill -0 "$NOVNC_PID" 2>/dev/null; then
+            echo "noVNC failed:"
             cat /tmp/novnc.log
             exit 1
           fi
 
-      - name: Start Cloudflare Tunnel
-        shell: bash
-        run: |
-          set -euo pipefail
+          if ! nc -z 127.0.0.1 6080; then
+            echo "noVNC is not listening on 6080."
+            cat /tmp/novnc.log
+            exit 1
+          fi
+
+          echo "Starting Cloudflare Quick Tunnel..."
 
           cloudflared tunnel \
             --url http://127.0.0.1:6080 \
             --logfile /tmp/cloudflared.log \
             >/tmp/cloudflared.stdout 2>&1 &
+
+          CLOUDFLARED_PID=$!
 
           TUNNEL_URL=""
 
@@ -160,12 +298,15 @@ jobs:
               true
             )"
 
-            [[ -n "$TUNNEL_URL" ]] && break
+            if [[ -n "$TUNNEL_URL" ]]; then
+              break
+            fi
+
             sleep 1
           done
 
           if [[ -z "$TUNNEL_URL" ]]; then
-            echo "Could not obtain Cloudflare URL."
+            echo "Cloudflare tunnel failed."
             cat /tmp/cloudflared.log || true
             cat /tmp/cloudflared.stdout || true
             exit 1
@@ -173,16 +314,23 @@ jobs:
 
           echo
           echo "============================================================"
-          echo "WEB DESKTOP"
+          echo "macOS WEB DESKTOP"
           echo "============================================================"
           echo
           echo "$TUNNEL_URL/vnc.html?autoconnect=true"
           echo
-          echo "VNC password: meow"
+          echo "VNC username: $USERNAME"
+          echo "VNC password: $PASSWORD"
+          echo
+          echo "Console user:"
+          stat -f '%Su' /dev/console
           echo
           echo "============================================================"
+
+          disown "$NOVNC_PID" || true
+          disown "$CLOUDFLARED_PID" || true
 
       - name: Keep Session Alive
         shell: bash
         run: |
-          sleep 14400
+          sleep 21600
