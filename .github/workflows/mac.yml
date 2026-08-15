@@ -9,104 +9,115 @@ jobs:
     timeout-minutes: 245
 
     steps:
-      - name: Enable Native macOS Screen Sharing
+      - name: Configure macOS VNC
         shell: bash
-        env:
-          VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
         run: |
           set -euo pipefail
 
           ARD="/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart"
-          SCREENSHARING_PLIST="/System/Library/LaunchDaemons/com.apple.screensharing.plist"
 
-          if [[ -z "${VNC_PASSWORD:-}" ]]; then
-            echo "VNC_PASSWORD secret is empty."
-            exit 1
-          fi
-
+          VNC_PASSWORD="meow"
+          MAC_PASSWORD="meow"
           CONSOLE_USER="$(stat -f '%Su' /dev/console)"
+
+          echo "Console user: $CONSOLE_USER"
 
           if [[ "$CONSOLE_USER" == "root" || "$CONSOLE_USER" == "loginwindow" ]]; then
             echo "No active GUI session."
             exit 1
           fi
 
-          echo "Console user: $CONSOLE_USER"
-
-          # ------------------------------------------------------------
-          # 1. Completely disable Remote Management.
+          # ----------------------------------------------------------
+          # Reset the existing runner account password.
           #
-          # Apple does not allow Remote Management and Screen Sharing
-          # to be enabled simultaneously.
-          # ------------------------------------------------------------
+          # This is a diagnostic test. It is NOT normally required for
+          # legacy VNC authentication.
+          # ----------------------------------------------------------
+
+          sudo sysadminctl \
+            -resetPasswordFor "$CONSOLE_USER" \
+            -newPassword "$MAC_PASSWORD"
+
+          # ----------------------------------------------------------
+          # Disable any existing Screen Sharing configuration first.
+          # Remote Management and Screen Sharing cannot coexist.
+          # ----------------------------------------------------------
 
           sudo "$ARD" -deactivate || true
 
-          # ------------------------------------------------------------
-          # 2. Enable Apple's native Screen Sharing launch daemon.
-          # ------------------------------------------------------------
+          # Stop existing Apple sharing processes.
+          sudo pkill -TERM screensharingd 2>/dev/null || true
+          sudo pkill -TERM ScreensharingAgent 2>/dev/null || true
+          sudo pkill -TERM ARDAgent 2>/dev/null || true
 
-          sudo launchctl enable system/com.apple.screensharing || true
+          sleep 3
 
-          # Unload an existing instance if present.
-          sudo launchctl bootout system/com.apple.screensharing 2>/dev/null || true
+          # ----------------------------------------------------------
+          # Enable Remote Management for the EXISTING runner user.
+          # ----------------------------------------------------------
 
-          # Start Screen Sharing.
-          sudo launchctl bootstrap system "$SCREENSHARING_PLIST"
+          sudo "$ARD" \
+            -activate \
+            -configure \
+            -access -on \
+            -allowAccessFor -allUsers \
+            -privs -all
 
-          sleep 5
-
-          # ------------------------------------------------------------
-          # 3. Configure the legacy VNC password.
+          # ----------------------------------------------------------
+          # Enable legacy VNC authentication and explicitly set the
+          # VNC password.
           #
-          # Apple VNC authentication uses the legacy 8-character
-          # password mechanism.
-          # ------------------------------------------------------------
+          # IMPORTANT:
+          # Do NOT manually write com.apple.VNCSettings.txt here.
+          # Let kickstart generate the value it expects.
+          # ----------------------------------------------------------
 
           sudo "$ARD" \
             -configure \
             -clientopts \
             -setvnclegacy \
-            -vnclegacy yes
-
-          sudo "$ARD" \
-            -configure \
-            -clientopts \
+            -vnclegacy yes \
             -setvncpw \
             -vncpw "$VNC_PASSWORD"
 
-          # ------------------------------------------------------------
-          # 4. Make sure Screen Sharing is actually running.
-          # ------------------------------------------------------------
+          # Do not require a user to approve the VNC connection.
+          sudo "$ARD" \
+            -configure \
+            -clientopts \
+            -setreqperm \
+            -reqperm no
 
-          sleep 5
+          # ----------------------------------------------------------
+          # Restart the Apple Remote Management/VNC stack.
+          # ----------------------------------------------------------
 
-          echo
-          echo "Screen Sharing service:"
-          sudo launchctl print system/com.apple.screensharing 2>/dev/null || true
+          sudo "$ARD" -restart -agent -console
+
+          sleep 8
+
+          # ----------------------------------------------------------
+          # Verify that Apple's VNC server is listening.
+          # ----------------------------------------------------------
 
           echo
           echo "VNC listener:"
           sudo lsof -nP -iTCP:5900 -sTCP:LISTEN || true
 
           if ! nc -z 127.0.0.1 5900; then
-            echo
-            echo "Screen Sharing is NOT listening on TCP 5900."
-            echo
-            echo "Recent screensharing logs:"
-            log show \
-              --last 2m \
-              --style compact \
-              --predicate 'process == "screensharingd" OR process == "screensharingd"' \
-              2>/dev/null |
-              tail -100 || true
-
+            echo "ERROR: Nothing is listening on TCP 5900."
             exit 1
           fi
 
           echo
           echo "============================================================"
-          echo "Native macOS Screen Sharing is listening on :5900"
+          echo "macOS VNC is ready"
+          echo "============================================================"
+          echo
+          echo "VNC username: runner"
+          echo "VNC password: meow"
+          echo
+          echo "macOS account password was also reset to: meow"
+          echo
           echo "============================================================"
 
       - name: Install noVNC and Cloudflare
@@ -126,7 +137,7 @@ jobs:
 
           brew install cloudflared
 
-      - name: Start noVNC and Cloudflare Tunnel
+      - name: Start noVNC
         shell: bash
         run: |
           set -euo pipefail
@@ -136,28 +147,23 @@ jobs:
             --listen 6080 \
             >/tmp/novnc.log 2>&1 &
 
-          NOVNC_PID=$!
-
           sleep 3
 
-          if ! kill -0 "$NOVNC_PID" 2>/dev/null; then
-            echo "noVNC failed to start."
+          if ! nc -z 127.0.0.1 6080; then
+            echo "noVNC failed to start:"
             cat /tmp/novnc.log
             exit 1
           fi
 
-          if ! nc -z 127.0.0.1 6080; then
-            echo "noVNC is not listening on :6080."
-            cat /tmp/novnc.log
-            exit 1
-          fi
+      - name: Start Cloudflare Tunnel
+        shell: bash
+        run: |
+          set -euo pipefail
 
           cloudflared tunnel \
             --url http://127.0.0.1:6080 \
             --logfile /tmp/cloudflared.log \
             >/tmp/cloudflared.stdout 2>&1 &
-
-          CLOUDFLARED_PID=$!
 
           TUNNEL_URL=""
 
@@ -193,13 +199,10 @@ jobs:
           echo
           echo "$TUNNEL_URL/vnc.html?autoconnect=true"
           echo
-          echo "Username: leave blank"
-          echo "Password: VNC_PASSWORD secret"
+          echo "Username: runner"
+          echo "Password: meow"
           echo
           echo "============================================================"
-
-          disown "$NOVNC_PID" || true
-          disown "$CLOUDFLARED_PID" || true
 
       - name: Keep Session Alive
         shell: bash
