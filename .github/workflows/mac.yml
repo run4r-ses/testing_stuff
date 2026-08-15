@@ -33,13 +33,28 @@ jobs:
           cloudflared --version
           python3 --version
 
+      - name: Check macOS graphics acceleration
+        run: |
+          echo "=== System Profiler ==="
+          system_profiler SPDisplaysDataType
+      
+          echo
+          echo "=== Metal ==="
+          system_profiler SPDisplaysDataType | grep -Ei \
+            'chipset|metal|vendor|device|display|resolution' || true
+      
+          echo
+          echo "=== Quartz / WindowServer ==="
+          ps aux | grep -E '[W]indowServer|[C]ARenderServer'
+      
+          echo
+          echo "=== Displays ==="
+          system_profiler SPDisplaysDataType | sed -n '1,120p'
+
       - name: Start x11vnc
         shell: bash
         run: |
           set -euo pipefail
-
-          /opt/homebrew/bin/x11vnc -help 2>&1 | sed -n '/MACOSX/,/MISC/p'
-          /opt/homebrew/bin/x11vnc -help 2>&1 | grep -A100 -B10 -Ei 'macosx|macos|CGDisplay|CGL|framebuffer'
 
           echo "============================================================"
           echo "Starting x11vnc native macOS framebuffer"
