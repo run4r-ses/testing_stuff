@@ -35,12 +35,13 @@ for U in "$USERNAME" "$CONSOLE_USER" "root"; do
   [[ "$U" == "root" ]] && DIR="/var/root/Library/Preferences/com.carriez.RustDesk"
   sudo mkdir -p "$DIR"
   
-  # Seed configuration with H.265 hardware encoding and direct IP access
+  # Seed configuration with H.264 high-performance encoding and direct IP access
   sudo tee "$DIR/RustDesk.toml" >/dev/null << 'EOF'
 [options]
 direct-server = 'Y'
 direct-access-port = '21118'
-codec-preference = 'h265'
+codec-preference = 'h264'
+image-quality = '2'
 custom-fps = '60'
 allow-remote-config-modification = 'true'
 verification-method = 'use-permanent-password'
@@ -104,6 +105,7 @@ for U in "$USERNAME" "$CONSOLE_USER" "root"; do
     fi
     grep -q "direct-server" "$CONF" || echo "direct-server = 'Y'" | sudo tee -a "$CONF" >/dev/null
     grep -q "direct-access-port" "$CONF" || echo "direct-access-port = '21118'" | sudo tee -a "$CONF" >/dev/null
+    grep -q "codec-preference" "$CONF" || echo "codec-preference = 'h264'" | sudo tee -a "$CONF" >/dev/null
   fi
 done
 
@@ -116,6 +118,9 @@ if ! pgrep -i "rustdesk" >/dev/null 2>&1; then
   sudo -u "$CONSOLE_USER" nohup "$RUSTDESK_BIN" --server >/tmp/rustdesk.log 2>&1 &
   sleep 3
 fi
+
+# Prioritize RustDesk server process
+sudo renice -n -15 -p $(pgrep -i rustdesk) 2>/dev/null || true
 
 # Launch background bore TCP tunnel for direct IP port (21118)
 echo "- Starting bore tunnel"
