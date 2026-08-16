@@ -3,14 +3,10 @@ set -euo pipefail
 
 echo "* Disabling unnecessary services"
 
-# Disable Spotlight indexing, metadata daemon, and UI agent permanently
-echo "- Disabling Spotlight"
-sudo touch /.metadata_never_index 2>/dev/null || true
-sudo touch /System/Volumes/Data/.metadata_never_index 2>/dev/null || true
-sudo touch /Users/.metadata_never_index 2>/dev/null || true
+# Disable Spotlight content indexing
+echo "- Configuring Spotlight"
+sudo touch /tmp/.metadata_never_index 2>/dev/null || true
 sudo mdutil -a -i off >/dev/null 2>&1 || true
-sudo mdutil -a -d >/dev/null 2>&1 || true
-sudo mdutil -a -E >/dev/null 2>&1 || true
 
 # Prevent sleep, screensaver, and display throttling
 echo "- Configuring power management"
@@ -59,8 +55,6 @@ CONSOLE_USER="$(stat -f '%Su' /dev/console 2>/dev/null || echo "runner")"
 CONSOLE_UID="$(id -u "$CONSOLE_USER" 2>/dev/null || echo "501")"
 
 DISABLE_SERVICES=(
-  "com.apple.Spotlight"
-  "com.apple.corespotlightd"
   "com.apple.metadata.mds"
   "com.apple.metadata.mds.index"
   "com.apple.metadata.mds.spindump"
@@ -125,7 +119,6 @@ KILL_PROCS=(
   "mds_stores"
   "mdworker"
   "mdworker_shared"
-  "Spotlight"
 )
 
 for PROC in "${KILL_PROCS[@]}"; do
