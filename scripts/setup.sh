@@ -18,7 +18,7 @@ else
   echo "- Creating new user account for $USERNAME"
   sudo dscl . -create "/Users/$USERNAME"
   sudo dscl . -create "/Users/$USERNAME" UserShell /bin/bash
-  sudo dscl . -create "/Users/$USERNAME" RealName "Runner Admin"
+  sudo dscl . -create "/Users/$USERNAME" RealName "runneradmin"
   sudo dscl . -create "/Users/$USERNAME" UniqueID "$USER_UID"
   sudo dscl . -create "/Users/$USERNAME" PrimaryGroupID 20
   sudo dscl . -create "/Users/$USERNAME" NFSHomeDirectory "/Users/$USERNAME"
@@ -45,13 +45,6 @@ sudo defaults write \
   autoLoginUser \
   "$USERNAME"
 
-# Switch current GUI session (best-effort)
-sudo /System/Library/CoreServices/Menu\ Extras/User.menu/Contents/Resources/CGSession \
-  -switchToUserID "$USER_UID" \
-  2>/tmp/cgsession.err || true
-
-sleep 5
-
 echo
 echo "- Console user:"
 stat -f '%Su' /dev/console 2>/dev/null || whoami
@@ -59,9 +52,3 @@ stat -f '%Su' /dev/console 2>/dev/null || whoami
 echo
 echo "- Logged-in users:"
 who || true
-
-if [[ -s /tmp/cgsession.err ]]; then
-  echo
-  echo "- GSession output:"
-  cat /tmp/cgsession.err || true
-fi

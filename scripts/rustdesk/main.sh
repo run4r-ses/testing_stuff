@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 USERNAME="${RUSTDESK_USERNAME:-runneradmin}"
 if [[ -z "${RUSTDESK_PASSWORD:-}" ]]; then
   echo "! RUSTDESK_PASSWORD environment variable is required"
@@ -10,44 +11,39 @@ PASSWORD="$RUSTDESK_PASSWORD"
 
 echo "* Configuring RustDesk"
 
-RUSTDESK_BIN="/Applications/RustDesk.app/Contents/MacOS/RustDesk"
-if [[ ! -x "$RUSTDESK_BIN" ]]; then
-  if [[ -x "/Applications/RustDesk.app/Contents/MacOS/rustdesk" ]]; then
-    RUSTDESK_BIN="/Applications/RustDesk.app/Contents/MacOS/rustdesk"
-  else
-    echo "! RustDesk binary not found at /Applications/RustDesk.app"
-    exit 1
-  fi
-fi
-
+# Remove Gatekeeper quarantine
 echo "- Removing Gatekeeper quarantine"
 sudo xattr -cr /Applications/RustDesk.app 2>/dev/null || true
 sudo xattr -rd com.apple.quarantine /Applications/RustDesk.app 2>/dev/null || true
 
-echo "- Installing and starting service"
-sudo "$RUSTDESK_BIN" --install-service 2>/dev/null || true
-sleep 3
+# Run official service installer
+echo "- Installing service"
+sudo bash "$SCRIPT_DIR/install_service.sh" -u "$USERNAME"
 
-echo "- Launching GUI session"
-nohup open -g -a /Applications/RustDesk.app >/dev/null 2>&1 &
-sleep 3
-
+# Set password using official script / CLI
 echo "- Setting password"
-sudo "$RUSTDESK_BIN" --password "$PASSWORD" 2>/dev/null || true
-"$RUSTDESK_BIN" --password "$PASSWORD" 2>/dev/null || true
-sleep 2
+sudo bash "$SCRIPT_DIR/install_service.sh" -p "$PASSWORD"
 
+# Locate RustDesk binary
+RUSTDESK_BIN="/Applications/RustDesk.app/Contents/MacOS/RustDesk"
+if [[ ! -x "$RUSTDESK_BIN" && -x "/Applications/RustDesk.app/Contents/MacOS/rustdesk" ]]; then
+  RUSTDESK_BIN="/Applications/RustDesk.app/Contents/MacOS/rustdesk"
+fi
+
+# Fetch RustDesk ID
 echo "- Fetching RustDesk ID"
 RUSTDESK_ID=""
 for i in {1..30}; do
-  RUSTDESK_ID="$("$RUSTDESK_BIN" --get-id 2>/dev/null || true)"
-  RUSTDESK_ID="$(echo "$RUSTDESK_ID" | tr -d '[:space:]')"
+  if [[ -x "$RUSTDESK_BIN" ]]; then
+    RUSTDESK_ID="$("$RUSTDESK_BIN" --get-id 2>/dev/null || true)"
+    RUSTDESK_ID="$(echo "$RUSTDESK_ID" | tr -d '[:space:]')"
+  fi
 
   if [[ -n "$RUSTDESK_ID" && "$RUSTDESK_ID" =~ ^[0-9a-zA-Z_-]+$ ]]; then
     break
   fi
 
-  # Fallback: Check RustDesk config files
+  # Fallback: check config files
   for CONF in \
     "/Users/$USERNAME/Library/Preferences/com.carriez.RustDesk/RustDesk2.toml" \
     "/Users/$USERNAME/Library/Preferences/com.carriez.RustDesk/RustDesk.toml" \
@@ -69,8 +65,7 @@ done
 
 if [[ -z "$RUSTDESK_ID" ]]; then
   echo "! Could not automatically detect RustDesk ID via CLI"
-  echo "! RustDesk is running, check client window or config if needed"
-  RUSTDESK_ID="Unavailable (check RustDesk client)"
+  RUSTDESK_ID="Unavailable"
 fi
 
 echo

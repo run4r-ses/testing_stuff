@@ -39,10 +39,10 @@ jobs:
         shell: bash
         run: bash scripts/tcc.sh
 
-      - name: Configure and start RustDesk
+      - name: Configure RustDesk
         shell: bash
-        run: bash scripts/rustdesk.sh
+        run: bash scripts/rustdesk/main.sh
 
-      - name: Monitor RustDesk session
+      - name: Monitor session
         shell: bash
-        run: bash scripts/keepalive.sh
+        run: bash scripts/rustdesk/keepalive.sh
