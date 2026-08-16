@@ -3,6 +3,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 USERNAME="${RUSTDESK_USERNAME:-runneradmin}"
+CONSOLE_USER="$(stat -f '%Su' /dev/console 2>/dev/null || echo "runner")"
+if [[ -z "$CONSOLE_USER" || "$CONSOLE_USER" == "root" ]]; then
+  CONSOLE_USER="runner"
+fi
+CONSOLE_UID="$(id -u "$CONSOLE_USER" 2>/dev/null || echo "501")"
+
 if [[ -z "${RUSTDESK_PASSWORD:-}" ]]; then
   echo "! RUSTDESK_PASSWORD environment variable is required"
   exit 1
@@ -22,9 +28,9 @@ echo "- Removing Gatekeeper quarantine"
 sudo xattr -cr /Applications/RustDesk.app 2>/dev/null || true
 sudo xattr -rd com.apple.quarantine /Applications/RustDesk.app 2>/dev/null || true
 
-# Pre-create preference directories and empty config files to prevent os error 2
+# Pre-create preference directories and empty config files
 echo "- Initializing preference directories"
-for U in "$USERNAME" "runner" "root"; do
+for U in "$USERNAME" "$CONSOLE_USER" "root"; do
   DIR="/Users/$U/Library/Preferences/com.carriez.RustDesk"
   [[ "$U" == "root" ]] && DIR="/var/root/Library/Preferences/com.carriez.RustDesk"
   sudo mkdir -p "$DIR"
@@ -34,20 +40,33 @@ for U in "$USERNAME" "runner" "root"; do
   fi
 done
 
-# Run official service installer for target user
-echo "- Installing service for $USERNAME"
-sudo bash "$SCRIPT_DIR/install_service.sh" -u "$USERNAME"
+# Run official service installer for the active GUI console session
+echo "- Installing service for GUI console user $CONSOLE_USER ($CONSOLE_UID)"
+sudo bash "$SCRIPT_DIR/install_service.sh" -u "$CONSOLE_USER"
 
-# Set password across root and user configurations
+# Also register preferences for target user if distinct
+if [[ "$USERNAME" != "$CONSOLE_USER" ]] && id "$USERNAME" >/dev/null 2>&1; then
+  sudo bash "$SCRIPT_DIR/install_service.sh" -u "$USERNAME" 2>/dev/null || true
+fi
+
+# Set password across root and console user configurations
 echo "- Setting password"
 sudo "$RUSTDESK_BIN" --password "$PASSWORD" 2>/dev/null || true
-sudo -u "$USERNAME" "$RUSTDESK_BIN" --password "$PASSWORD" 2>/dev/null || true
+sudo -u "$CONSOLE_USER" "$RUSTDESK_BIN" --password "$PASSWORD" 2>/dev/null || true
+if [[ "$USERNAME" != "$CONSOLE_USER" ]] && id "$USERNAME" >/dev/null 2>&1; then
+  sudo -u "$USERNAME" "$RUSTDESK_BIN" --password "$PASSWORD" 2>/dev/null || true
+fi
 sleep 2
 
-# Start server process for user
+# Kickstart server in the active GUI domain
 echo "- Starting RustDesk server"
-sudo -u "$USERNAME" nohup "$RUSTDESK_BIN" --server >/tmp/rustdesk.log 2>&1 &
-sleep 2
+sudo launchctl kickstart -kp "gui/$CONSOLE_UID/com.carriez.RustDesk_server" 2>/dev/null || true
+
+# Fallback: start server in background if not already running
+if ! pgrep -i "rustdesk" >/dev/null 2>&1; then
+  sudo -u "$CONSOLE_USER" nohup "$RUSTDESK_BIN" --server >/tmp/rustdesk.log 2>&1 &
+  sleep 3
+fi
 
 # Fetch RustDesk ID
 echo "- Fetching RustDesk ID"
@@ -64,9 +83,9 @@ for i in {1..30}; do
 
   # Fallback: check config files
   for CONF in \
+    "/Users/$CONSOLE_USER/Library/Preferences/com.carriez.RustDesk/RustDesk2.toml" \
+    "/Users/$CONSOLE_USER/Library/Preferences/com.carriez.RustDesk/RustDesk.toml" \
     "/Users/$USERNAME/Library/Preferences/com.carriez.RustDesk/RustDesk2.toml" \
-    "/Users/$USERNAME/Library/Preferences/com.carriez.RustDesk/RustDesk.toml" \
-    "/Users/runner/Library/Preferences/com.carriez.RustDesk/RustDesk2.toml" \
     "/Library/Preferences/com.carriez.RustDesk/RustDesk2.toml" \
     "/var/root/Library/Preferences/com.carriez.RustDesk/RustDesk2.toml"; do
     if [[ -f "$CONF" ]]; then
@@ -87,9 +106,13 @@ if [[ -z "$RUSTDESK_ID" ]]; then
 fi
 
 echo
+echo "- Running RustDesk processes:"
+ps aux | grep -i '[r]ustdesk' || echo "! No rustdesk processes found"
+
+echo
 echo "* macOS web desktop is ready"
 echo "* RustDesk ID:   $RUSTDESK_ID"
-echo "* Console user:  $USERNAME"
+echo "* Console user:  $CONSOLE_USER"
 echo "* OS version:    $(sw_vers -productVersion 2>/dev/null || echo 'macOS')"
 echo "*"
 echo "* For web, you can connect via https://rustdesk.com/web/"
