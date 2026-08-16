@@ -22,14 +22,26 @@ echo "- Removing Gatekeeper quarantine"
 sudo xattr -cr /Applications/RustDesk.app 2>/dev/null || true
 sudo xattr -rd com.apple.quarantine /Applications/RustDesk.app 2>/dev/null || true
 
-# Run official service installer for runneradmin
+# Pre-create preference directories and empty config files to prevent os error 2
+echo "- Initializing preference directories"
+for U in "$USERNAME" "runner" "root"; do
+  DIR="/Users/$U/Library/Preferences/com.carriez.RustDesk"
+  [[ "$U" == "root" ]] && DIR="/var/root/Library/Preferences/com.carriez.RustDesk"
+  sudo mkdir -p "$DIR"
+  sudo touch "$DIR/RustDesk.toml" "$DIR/RustDesk2.toml"
+  if [[ "$U" != "root" ]]; then
+    sudo chown -R "$U" "$DIR" 2>/dev/null || true
+  fi
+done
+
+# Run official service installer for target user
 echo "- Installing service for $USERNAME"
 sudo bash "$SCRIPT_DIR/install_service.sh" -u "$USERNAME"
 
-# Set password
+# Set password across root and user configurations
 echo "- Setting password"
-sudo -u "$USERNAME" "$RUSTDESK_BIN" --password "$PASSWORD" 2>/dev/null || true
 sudo "$RUSTDESK_BIN" --password "$PASSWORD" 2>/dev/null || true
+sudo -u "$USERNAME" "$RUSTDESK_BIN" --password "$PASSWORD" 2>/dev/null || true
 sleep 2
 
 # Start server process for user
@@ -50,10 +62,11 @@ for i in {1..30}; do
     break
   fi
 
-  # Fallback: check user config files
+  # Fallback: check config files
   for CONF in \
     "/Users/$USERNAME/Library/Preferences/com.carriez.RustDesk/RustDesk2.toml" \
     "/Users/$USERNAME/Library/Preferences/com.carriez.RustDesk/RustDesk.toml" \
+    "/Users/runner/Library/Preferences/com.carriez.RustDesk/RustDesk2.toml" \
     "/Library/Preferences/com.carriez.RustDesk/RustDesk2.toml" \
     "/var/root/Library/Preferences/com.carriez.RustDesk/RustDesk2.toml"; do
     if [[ -f "$CONF" ]]; then
