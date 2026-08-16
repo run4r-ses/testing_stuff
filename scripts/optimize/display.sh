@@ -21,12 +21,14 @@ if command -v displayplacer >/dev/null 2>&1; then
   fi
 
   if [[ -n "$SCREEN_ID" ]]; then
-    echo "- Setting screen ($SCREEN_ID) to 720p (optimized for VNC)..."
-    displayplacer "id:$SCREEN_ID res:1280x720 scaling:on" 2>/dev/null || \
+    echo "- Setting screen ($SCREEN_ID) to 720p (optimized for VNC / Remote Desktop)..."
     displayplacer "id:$SCREEN_ID res:1280x720 scaling:off" 2>/dev/null || \
+    displayplacer "id:$SCREEN_ID res:1280x720 scaling:on" 2>/dev/null || \
     displayplacer "id:$SCREEN_ID res:1280x720" 2>/dev/null || \
+    displayplacer "id:$SCREEN_ID res:1280x800 scaling:off" 2>/dev/null || \
     displayplacer "id:$SCREEN_ID res:1280x800 scaling:on" 2>/dev/null || \
     displayplacer "id:$SCREEN_ID res:1280x800" 2>/dev/null || \
+    displayplacer "id:$SCREEN_ID res:1440x900 scaling:off" 2>/dev/null || \
     displayplacer "id:$SCREEN_ID res:1440x900 scaling:on" 2>/dev/null || \
     displayplacer "id:$SCREEN_ID res:1440x900" 2>/dev/null || true
   else

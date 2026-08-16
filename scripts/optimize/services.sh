@@ -3,9 +3,13 @@ set -euo pipefail
 
 echo "* Disabling unnecessary services"
 
-# Disable Spotlight indexing
+# Disable Spotlight indexing and daemon
 echo "- Disabling Spotlight"
 sudo mdutil -a -i off >/dev/null 2>&1 || true
+sudo mdutil -a -d >/dev/null 2>&1 || true
+sudo mdutil -a -E >/dev/null 2>&1 || true
+sudo launchctl unload -w /System/Library/LaunchDaemons/com.apple.metadata.mds.plist 2>/dev/null || true
+sudo launchctl disable system/com.apple.metadata.mds 2>/dev/null || true
 
 # Prevent sleep, screensaver, and display throttling
 echo "- Configuring power management"
@@ -43,8 +47,44 @@ sudo sysctl -w net.inet.tcp.sendspace=1048576 2>/dev/null || true
 sudo sysctl -w net.inet.tcp.recvspace=1048576 2>/dev/null || true
 sudo sysctl -w kern.ipc.maxsockbuf=8388608 2>/dev/null || true
 
-# Kill heavyweight background processes that waste CPU and produce screen updates
-echo "- Killing unnecessary background processes"
+# Disable and unload background daemons that waste CPU and trigger screen refreshes
+echo "- Suppressing background services"
+
+CONSOLE_USER="$(stat -f '%Su' /dev/console 2>/dev/null || echo "runner")"
+CONSOLE_UID="$(id -u "$CONSOLE_USER" 2>/dev/null || echo "501")"
+
+DISABLE_SERVICES=(
+  "com.apple.photoanalysisd"
+  "com.apple.photolibraryd"
+  "com.apple.mediaanalysisd"
+  "com.apple.triald"
+  "com.apple.parsecd"
+  "com.apple.intelligenceplatformd"
+  "com.apple.remindd"
+  "com.apple.CalendarAgent"
+  "com.apple.suggestd"
+  "com.apple.rapportd"
+  "com.apple.biometrickitd"
+  "com.apple.gamecontrollerd"
+  "com.apple.AMPDeviceDiscoveryAgent"
+  "com.apple.diagnostics_agent"
+  "com.apple.spindump"
+  "com.apple.ReportCrash"
+  "com.apple.SubmitDiagInfo"
+  "com.apple.UsageTrackingAgent"
+  "com.apple.knowledge-agent"
+)
+
+for SVC in "${DISABLE_SERVICES[@]}"; do
+  sudo launchctl disable "system/$SVC" 2>/dev/null || true
+  sudo launchctl unload -w "/System/Library/LaunchDaemons/$SVC.plist" 2>/dev/null || true
+  if [[ -n "$CONSOLE_UID" && "$CONSOLE_UID" != "0" ]]; then
+    launchctl disable "gui/$CONSOLE_UID/$SVC" 2>/dev/null || true
+    launchctl asuser "$CONSOLE_UID" sudo -u "$CONSOLE_USER" launchctl unload -w "/System/Library/LaunchAgents/$SVC.plist" 2>/dev/null || true
+  fi
+done
+
+# Terminate any currently active instances
 KILL_PROCS=(
   "softwareupdated"
   "com.apple.DiagnosticReportCleanUpAgent"
@@ -69,6 +109,11 @@ KILL_PROCS=(
   "contactsd"
   "coreduetd"
   "knowledge-agent"
+  "mds"
+  "mds_stores"
+  "mdworker"
+  "mdworker_shared"
+  "Spotlight"
 )
 
 for PROC in "${KILL_PROCS[@]}"; do

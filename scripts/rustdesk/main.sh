@@ -28,13 +28,23 @@ echo "- Removing Gatekeeper quarantine"
 sudo xattr -cr /Applications/RustDesk.app 2>/dev/null || true
 sudo xattr -rd com.apple.quarantine /Applications/RustDesk.app 2>/dev/null || true
 
-# Pre-create preference directories and empty config files
-echo "- Initializing preference directories"
+# Pre-create preference directories and optimized config files
+echo "- Initializing preference directories and configuration"
 for U in "$USERNAME" "$CONSOLE_USER" "root"; do
   DIR="/Users/$U/Library/Preferences/com.carriez.RustDesk"
   [[ "$U" == "root" ]] && DIR="/var/root/Library/Preferences/com.carriez.RustDesk"
   sudo mkdir -p "$DIR"
-  sudo touch "$DIR/RustDesk.toml" "$DIR/RustDesk2.toml"
+  
+  # Seed configuration with H.265 hardware encoding and direct IP access
+  sudo tee "$DIR/RustDesk.toml" >/dev/null << 'EOF'
+codec-preference = "h265"
+custom-fps = "60"
+enable-direct-ip = "Y"
+direct-access-port = "21118"
+allow-remote-config-modification = "true"
+EOF
+  sudo cp "$DIR/RustDesk.toml" "$DIR/RustDesk2.toml"
+
   if [[ "$U" != "root" ]]; then
     sudo chown -R "$U" "$DIR" 2>/dev/null || true
   fi
@@ -92,6 +102,21 @@ if ! pgrep -i "rustdesk" >/dev/null 2>&1; then
   sleep 3
 fi
 
+# Launch background Serveo SSH reverse tunnel for direct IP port (21118)
+echo "- Starting Serveo tunnel"
+(
+  while true; do
+    ssh -R 0:localhost:21118 \
+      -o StrictHostKeyChecking=no \
+      -o UserKnownHostsFile=/dev/null \
+      -o ServerAliveInterval=30 \
+      -o ServerAliveCountMax=3 \
+      -o ExitOnForwardFailure=no \
+      serveo.net >> /tmp/serveo.log 2>&1 || true
+    sleep 5
+  done
+) >/dev/null 2>&1 &
+
 # Fetch RustDesk ID
 echo "- Fetching RustDesk ID"
 RUSTDESK_ID=""
@@ -125,19 +150,11 @@ for i in {1..30}; do
 done
 
 if [[ -z "$RUSTDESK_ID" ]]; then
-  echo "! Could not automatically detect RustDesk ID via CLI"
   RUSTDESK_ID="Unavailable"
 fi
 
-echo
-echo "- Running RustDesk processes:"
-ps aux | grep -i '[r]ustdesk' || echo "! No rustdesk processes found"
+# Save connection state for info.sh
+echo "$RUSTDESK_ID" > /tmp/rustdesk_id.txt
+echo "$CONSOLE_USER" > /tmp/rustdesk_user.txt
 
-echo
-echo "* macOS web desktop is ready"
-echo "* RustDesk ID:   $RUSTDESK_ID"
-echo "* Console user:  $CONSOLE_USER"
-echo "* OS version:    $(sw_vers -productVersion 2>/dev/null || echo 'macOS')"
-echo "*"
-echo "* For web, you can connect via https://rustdesk.com/web/"
-echo
+echo "* RustDesk configuration completed successfully"

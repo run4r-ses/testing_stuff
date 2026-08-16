@@ -18,6 +18,10 @@ jobs:
 
       - name: Install dependencies
         shell: bash
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
+          HOMEBREW_NO_ANALYTICS: 1
         run: |
           echo "- Installing display utilities"
           brew install displayplacer desktoppr
@@ -42,6 +46,10 @@ jobs:
       - name: Configure RustDesk
         shell: bash
         run: bash scripts/rustdesk/main.sh
+
+      - name: Connection information
+        shell: bash
+        run: bash scripts/rustdesk/info.sh
 
       - name: Monitor session
         shell: bash
