@@ -104,13 +104,16 @@ fi
 
 # Launch background Serveo SSH reverse tunnel for direct IP port (21118)
 echo "- Starting Serveo tunnel"
+SERVEO_PORT=$(( 15000 + (RANDOM % 35000) ))
+echo "$SERVEO_PORT" > /tmp/serveo_port.txt
+
 ssh \
   -o StrictHostKeyChecking=no \
   -o UserKnownHostsFile=/dev/null \
   -o ServerAliveInterval=10 \
   -o ServerAliveCountMax=3 \
   -o ExitOnForwardFailure=yes \
-  -R 0:localhost:21118 \
+  -R "${SERVEO_PORT}:localhost:21118" \
   serveo.net \
   > /tmp/serveo.log 2>&1 &
 echo $! > /tmp/serveo.pid

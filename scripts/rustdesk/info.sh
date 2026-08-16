@@ -76,6 +76,14 @@ for _ in {1..30}; do
   sleep 1
 done
 
+# Fallback to configured target port if tunnel process is alive
+if [[ -z "$SERVEO_ENDPOINT" && -f /tmp/serveo.pid ]]; then
+  PID="$(cat /tmp/serveo.pid 2>/dev/null || true)"
+  if [[ -n "$PID" ]] && kill -0 "$PID" 2>/dev/null && [[ -f /tmp/serveo_port.txt ]]; then
+    SERVEO_ENDPOINT="serveo.net:$(cat /tmp/serveo_port.txt | tr -d '[:space:]')"
+  fi
+fi
+
 if [[ -z "$SERVEO_ENDPOINT" && -f /tmp/serveo.log ]]; then
   echo "! Could not detect Serveo tunnel endpoint"
   echo "--- serveo.log ---"
