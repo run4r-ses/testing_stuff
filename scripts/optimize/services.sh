@@ -35,8 +35,8 @@ defaults write NSGlobalDomain "com.apple.sound.uiaudio.enabled" -int 0
 echo "- Disabling Time Machine"
 sudo tmutil disable 2>/dev/null || true
 
-# Optimize TCP/UDP network stack for low-latency VNC streaming
-echo "- Optimizing network stack for low-latency VNC"
+# Optimize TCP/UDP network stack for low-latency streaming
+echo "- Optimizing network stack for low-latency remote desktop"
 sudo sysctl -w net.inet.tcp.delayed_ack=0 2>/dev/null || true
 sudo sysctl -w net.inet.tcp.mptcp.enable=0 2>/dev/null || true
 sudo sysctl -w net.inet.tcp.sendspace=1048576 2>/dev/null || true

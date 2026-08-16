@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-USERNAME="${VNC_USERNAME:-runneradmin}"
+USERNAME="${RUSTDESK_USERNAME:-runneradmin}"
 
 echo "* Bypassing TCC"
 
@@ -47,12 +47,16 @@ patch_tcc() {
   )
 
   local CLIENTS_BUNDLE=(
+    "com.carriez.rustdesk"
+    "com.carriez.RustDesk"
     "com.apple.screensharing.agent"
     "com.apple.screensharingd"
     "com.apple.RemoteDesktopAgent"
   )
 
   local CLIENTS_PATH=(
+    "/Applications/RustDesk.app/Contents/MacOS/RustDesk"
+    "/Applications/RustDesk.app/Contents/MacOS/rustdesk"
     "/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/MacOS/ARDAgent"
     "/System/Library/CoreServices/RemoteManagement/screensharingd.bundle/Contents/MacOS/screensharingd"
   )

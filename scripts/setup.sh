@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-USERNAME="${VNC_USERNAME:-runneradmin}"
-if [[ -z "${VNC_PASSWORD:-}" ]]; then
-  echo "! VNC_PASSWORD environment variable is required"
+USERNAME="${RUSTDESK_USERNAME:-runneradmin}"
+if [[ -z "${RUSTDESK_PASSWORD:-}" ]]; then
+  echo "! RUSTDESK_PASSWORD environment variable is required"
   exit 1
 fi
-PASSWORD="$VNC_PASSWORD"
-USER_UID="${VNC_UID:-502}"
+PASSWORD="$RUSTDESK_PASSWORD"
+USER_UID="${RUSTDESK_UID:-502}"
 
 echo "* Creating GUI user $USERNAME"
 

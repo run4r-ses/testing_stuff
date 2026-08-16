@@ -4,13 +4,13 @@ on:
   workflow_dispatch:
 
 jobs:
-  macos-vnc:
+  macos-rustdesk:
     runs-on: macos-latest
     timeout-minutes: 370
 
     env:
-      VNC_USERNAME: runneradmin
-      VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
+      RUSTDESK_USERNAME: runneradmin
+      RUSTDESK_PASSWORD: ${{ secrets.RUSTDESK_PASSWORD }}
 
     steps:
       - name: Checkout repository
@@ -19,15 +19,11 @@ jobs:
       - name: Install dependencies
         shell: bash
         run: |
-          echo "- Installing displayplacer and desktoppr"
+          echo "- Installing display utilities"
           brew install displayplacer desktoppr
 
-          echo "- Installing websockify and numpy"
-          pip3 install --break-system-packages websockify numpy 2>/dev/null || pip3 install websockify numpy 2>/dev/null || true
-
-          echo "- Downloading noVNC and Websockify"
-          git clone --depth 1 https://github.com/novnc/noVNC.git /tmp/novnc
-          git clone --depth 1 https://github.com/novnc/websockify /tmp/novnc/utils/websockify
+          echo "- Installing RustDesk"
+          brew install --cask rustdesk
 
       - name: Setup user
         shell: bash
@@ -41,14 +37,10 @@ jobs:
         shell: bash
         run: bash scripts/tcc.sh
 
-      - name: Configure and start VNC server
+      - name: Configure and start RustDesk
         shell: bash
-        run: bash scripts/vnc.sh
+        run: bash scripts/rustdesk.sh
 
-      - name: Start VNC tunnel
+      - name: Monitor RustDesk session
         shell: bash
-        run: bash scripts/tunnel.sh
-
-      - name: Stream tunnel logs
-        shell: bash
-        run: bash scripts/logs.sh
+        run: bash scripts/keepalive.sh
