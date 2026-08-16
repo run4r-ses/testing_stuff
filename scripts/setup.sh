@@ -13,24 +13,37 @@ echo "* Creating GUI user $USERNAME"
 
 if id "$USERNAME" >/dev/null 2>&1; then
   echo "- User $USERNAME already exists, updating password"
-  sudo dscl . -passwd "/Users/$USERNAME" "$PASSWORD"
+  sudo sysadminctl -resetPasswordFor "$USERNAME" -newPassword "$PASSWORD" 2>/dev/null || \
+  (printf "%s\n%s\n" "$PASSWORD" "$PASSWORD" | sudo passwd "$USERNAME" 2>/dev/null) || \
+  sudo dscl . -passwd "/Users/$USERNAME" "" "$PASSWORD" 2>/dev/null || \
+  sudo dscl . -passwd "/Users/$USERNAME" "$PASSWORD" 2>/dev/null || true
 else
   echo "- Creating new user account for $USERNAME"
-  sudo dscl . -create "/Users/$USERNAME"
-  sudo dscl . -create "/Users/$USERNAME" UserShell /bin/bash
-  sudo dscl . -create "/Users/$USERNAME" RealName "runneradmin"
-  sudo dscl . -create "/Users/$USERNAME" UniqueID "$USER_UID"
-  sudo dscl . -create "/Users/$USERNAME" PrimaryGroupID 20
-  sudo dscl . -create "/Users/$USERNAME" NFSHomeDirectory "/Users/$USERNAME"
-  sudo dscl . -passwd "/Users/$USERNAME" "$PASSWORD"
-
-  sudo createhomedir -c -u "$USERNAME" >/dev/null 2>&1 || true
+  if sudo sysadminctl -addUser "$USERNAME" -fullName "runneradmin" -UID "$USER_UID" -password "$PASSWORD" -home "/Users/$USERNAME" -shell /bin/bash -admin 2>/dev/null; then
+    echo "- User $USERNAME created via sysadminctl"
+  else
+    echo "! Creating user $USERNAME via dscl as fallback"
+    sudo dscl . -create "/Users/$USERNAME"
+    sudo dscl . -create "/Users/$USERNAME" UserShell /bin/bash
+    sudo dscl . -create "/Users/$USERNAME" RealName "runneradmin"
+    sudo dscl . -create "/Users/$USERNAME" UniqueID "$USER_UID"
+    sudo dscl . -create "/Users/$USERNAME" PrimaryGroupID 20
+    sudo dscl . -create "/Users/$USERNAME" NFSHomeDirectory "/Users/$USERNAME"
+    (printf "%s\n%s\n" "$PASSWORD" "$PASSWORD" | sudo passwd "$USERNAME" 2>/dev/null) || \
+    sudo dscl . -passwd "/Users/$USERNAME" "" "$PASSWORD" 2>/dev/null || \
+    sudo dscl . -passwd "/Users/$USERNAME" "$PASSWORD" 2>/dev/null || true
+    sudo createhomedir -c -u "$USERNAME" >/dev/null 2>&1 || true
+  fi
 fi
 
 # Ensure user is in admin group
-sudo dseditgroup -o edit -a "$USERNAME" -t user admin
+sudo dseditgroup -o edit -a "$USERNAME" -t user admin 2>/dev/null || true
 
 # Also sync password to default runner account
+echo "- Updating default runner account password"
+sudo sysadminctl -resetPasswordFor runner -newPassword "$PASSWORD" 2>/dev/null || \
+(printf "%s\n%s\n" "$PASSWORD" "$PASSWORD" | sudo passwd runner 2>/dev/null) || \
+sudo dscl . -passwd "/Users/runner" "" "$PASSWORD" 2>/dev/null || \
 sudo dscl . -passwd "/Users/runner" "$PASSWORD" 2>/dev/null || true
 sudo dseditgroup -o edit -a runner -t user admin 2>/dev/null || true
 
