@@ -37,12 +37,13 @@ for U in "$USERNAME" "$CONSOLE_USER" "root"; do
   
   # Seed configuration with H.265 hardware encoding and direct IP access
   sudo tee "$DIR/RustDesk.toml" >/dev/null << 'EOF'
-direct-server = "Y"
-direct-access-port = "21118"
-codec-preference = "h265"
-custom-fps = "60"
-allow-remote-config-modification = "true"
-verification-method = "use-permanent-password"
+[options]
+direct-server = 'Y'
+direct-access-port = '21118'
+codec-preference = 'h265'
+custom-fps = '60'
+allow-remote-config-modification = 'true'
+verification-method = 'use-permanent-password'
 EOF
   sudo cp "$DIR/RustDesk.toml" "$DIR/RustDesk2.toml"
 
@@ -93,13 +94,16 @@ if [[ "$USERNAME" != "$CONSOLE_USER" ]] && id "$USERNAME" >/dev/null 2>&1; then
 fi
 sleep 2
 
-# Ensure direct IP listener settings persist in RustDesk2.toml
+# Ensure direct IP listener settings persist under [options] in RustDesk2.toml
 for U in "$USERNAME" "$CONSOLE_USER" "root"; do
   CONF="/Users/$U/Library/Preferences/com.carriez.RustDesk/RustDesk2.toml"
   [[ "$U" == "root" ]] && CONF="/var/root/Library/Preferences/com.carriez.RustDesk/RustDesk2.toml"
   if [[ -f "$CONF" ]]; then
-    grep -q "direct-server" "$CONF" || echo 'direct-server = "Y"' | sudo tee -a "$CONF" >/dev/null
-    grep -q "direct-access-port" "$CONF" || echo 'direct-access-port = "21118"' | sudo tee -a "$CONF" >/dev/null
+    if ! grep -q "^\[options\]" "$CONF"; then
+      printf "\n[options]\n" | sudo tee -a "$CONF" >/dev/null
+    fi
+    grep -q "direct-server" "$CONF" || echo "direct-server = 'Y'" | sudo tee -a "$CONF" >/dev/null
+    grep -q "direct-access-port" "$CONF" || echo "direct-access-port = '21118'" | sudo tee -a "$CONF" >/dev/null
   fi
 done
 
