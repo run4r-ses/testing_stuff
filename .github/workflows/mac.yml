@@ -24,6 +24,8 @@ jobs:
 
           echo "- Installing RustDesk"
           brew install --cask rustdesk
+          sudo xattr -cr /Applications/RustDesk.app 2>/dev/null || true
+          sudo xattr -rd com.apple.quarantine /Applications/RustDesk.app 2>/dev/null || true
 
       - name: Setup user
         shell: bash

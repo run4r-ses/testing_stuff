@@ -12,7 +12,6 @@ echo "* Configuring RustDesk"
 
 RUSTDESK_BIN="/Applications/RustDesk.app/Contents/MacOS/RustDesk"
 if [[ ! -x "$RUSTDESK_BIN" ]]; then
-  # Check alternative lowercase binary name
   if [[ -x "/Applications/RustDesk.app/Contents/MacOS/rustdesk" ]]; then
     RUSTDESK_BIN="/Applications/RustDesk.app/Contents/MacOS/rustdesk"
   else
@@ -21,16 +20,21 @@ if [[ ! -x "$RUSTDESK_BIN" ]]; then
   fi
 fi
 
+echo "- Removing Gatekeeper quarantine"
+sudo xattr -cr /Applications/RustDesk.app 2>/dev/null || true
+sudo xattr -rd com.apple.quarantine /Applications/RustDesk.app 2>/dev/null || true
+
 echo "- Installing and starting service"
 sudo "$RUSTDESK_BIN" --install-service 2>/dev/null || true
 sleep 3
 
 echo "- Launching GUI session"
-open -a /Applications/RustDesk.app 2>/dev/null || true
+nohup open -g -a /Applications/RustDesk.app >/dev/null 2>&1 &
 sleep 3
 
 echo "- Setting password"
-sudo "$RUSTDESK_BIN" --password "$PASSWORD" 2>/dev/null || "$RUSTDESK_BIN" --password "$PASSWORD" 2>/dev/null || true
+sudo "$RUSTDESK_BIN" --password "$PASSWORD" 2>/dev/null || true
+"$RUSTDESK_BIN" --password "$PASSWORD" 2>/dev/null || true
 sleep 2
 
 echo "- Fetching RustDesk ID"
@@ -49,7 +53,8 @@ for i in {1..30}; do
     "/Users/$USERNAME/Library/Preferences/com.carriez.RustDesk/RustDesk.toml" \
     "/Users/runner/Library/Preferences/com.carriez.RustDesk/RustDesk2.toml" \
     "/Users/runner/Library/Preferences/com.carriez.RustDesk/RustDesk.toml" \
-    "/Library/Preferences/com.carriez.RustDesk/RustDesk2.toml"; do
+    "/Library/Preferences/com.carriez.RustDesk/RustDesk2.toml" \
+    "/var/root/Library/Preferences/com.carriez.RustDesk/RustDesk2.toml"; do
     if [[ -f "$CONF" ]]; then
       ID_MATCH="$(awk -F "=" '/^[[:space:]]*id[[:space:]]*=/ {gsub(/["'\'' ]/, "", $2); print $2; exit}' "$CONF" 2>/dev/null || true)"
       if [[ -n "$ID_MATCH" ]]; then
