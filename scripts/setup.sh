@@ -11,19 +11,35 @@ USER_UID="${RUSTDESK_UID:-502}"
 
 echo "* Creating GUI user $USERNAME"
 
-# Force-set a user's password by clearing the existing authentication
-# authority first. On modern macOS, `dscl . -passwd` validates through
-# OpenDirectory even when run as root — requiring the OLD password.
-# By deleting AuthenticationAuthority we wipe the shadow hash / secure
-# token references so dscl treats it as a fresh account with no password
-# to validate against.
+# Force-set a user's password by stripping existing auth data directly
+# from the user's plist file, bypassing OpenDirectory's access controls.
+# On modern macOS, `dscl . -passwd` and even `dscl . -delete AuthenticationAuthority`
+# route through opendirectoryd which can refuse changes for protected users.
+# By editing the plist file on disk and restarting opendirectoryd, we bypass
+# all OD-level access checks.
 force_set_password() {
   local user="$1"
   local pass="$2"
+  local user_plist="/var/db/dslocal/nodes/Default/users/${user}.plist"
+
   echo "- Force-setting password for $user"
-  # Wipe existing auth state (shadow hash, secure token refs)
+
+  # Strip auth data directly from the on-disk plist (bypasses OD access controls)
+  if [[ -f "$user_plist" ]]; then
+    sudo /usr/libexec/PlistBuddy -c "Delete :ShadowHashData" "$user_plist" 2>/dev/null || true
+    sudo /usr/libexec/PlistBuddy -c "Delete :AuthenticationAuthority" "$user_plist" 2>/dev/null || true
+    sudo /usr/libexec/PlistBuddy -c "Delete :_writers_passwd" "$user_plist" 2>/dev/null || true
+  fi
+
+  # Also try via dscl for any in-memory state
   sudo dscl . -delete "/Users/$user" AuthenticationAuthority 2>/dev/null || true
-  # Now set fresh — no old password required since auth state was cleared
+
+  # Restart opendirectoryd so it re-reads the stripped plist from disk
+  sudo dscacheutil -flushcache 2>/dev/null || true
+  sudo killall opendirectoryd 2>/dev/null || true
+  sleep 3
+
+  # Now set the password — succeeds because there's no existing auth to validate
   sudo dscl . -passwd "/Users/$user" "$pass"
 }
 
