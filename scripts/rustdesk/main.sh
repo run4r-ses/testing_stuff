@@ -38,7 +38,31 @@ for U in "$USERNAME" "$CONSOLE_USER" "root"; do
   if [[ "$U" != "root" ]]; then
     sudo chown -R "$U" "$DIR" 2>/dev/null || true
   fi
+
+  # Bypass macOS 15+ Sequoia Screen Capture "bypass window picker" alert
+  if [[ "$U" == "root" ]]; then
+    PLIST_DIR="/var/root/Library/Group Containers/group.com.apple.replayd"
+  else
+    PLIST_DIR="/Users/$U/Library/Group Containers/group.com.apple.replayd"
+  fi
+  sudo mkdir -p "$PLIST_DIR"
+  PLIST="$PLIST_DIR/ScreenCaptureApprovals.plist"
+
+  for APP_KEY in \
+    "/Applications/RustDesk.app/Contents/MacOS/RustDesk" \
+    "/Applications/RustDesk.app/Contents/MacOS/rustdesk" \
+    "/Applications/RustDesk.app" \
+    "com.carriez.rustdesk" \
+    "com.carriez.RustDesk"; do
+    sudo defaults write "$PLIST" "$APP_KEY" -date "3024-01-01 00:00:00 +0000" 2>/dev/null || true
+  done
+
+  if [[ "$U" != "root" ]]; then
+    sudo chown -R "$U:staff" "$PLIST_DIR" 2>/dev/null || true
+  fi
 done
+
+sudo killall -9 replayd 2>/dev/null || true
 
 # Run official service installer for the active GUI console session
 echo "- Installing service for GUI console user $CONSOLE_USER ($CONSOLE_UID)"
