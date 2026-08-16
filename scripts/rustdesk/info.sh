@@ -22,16 +22,66 @@ OS_VERSION="$(sw_vers -productVersion 2>/dev/null || echo "macOS")"
 
 # 3. Resolve Serveo direct tunnel host/port
 SERVEO_ENDPOINT=""
-for _ in {1..10}; do
+for _ in {1..30}; do
   if [[ -f /tmp/serveo.log ]]; then
-    # Serveo output lines typically contain: "Forwarding TCP connections from serveo.net:XXXXX" or "serveo.net:XXXXX"
-    SERVEO_ENDPOINT="$(grep -E -o 'serveo\.net:[0-9]+' /tmp/serveo.log | tail -n 1 || true)"
+    # Strip ANSI color/control codes
+    CLEAN_LOG="$(sed -E 's/\x1B\[[0-9;]*[a-zA-Z]//g' /tmp/serveo.log 2>/dev/null || true)"
+
+    # 1. Check for TCP forwarding (e.g. "Forwarding TCP connections from serveo.net:XXXXX")
+    SERVEO_ENDPOINT="$(
+      echo "$CLEAN_LOG" |
+      grep -Ei 'Forwarding TCP connections from' |
+      grep -Eo '([A-Za-z0-9.-]+\.)?serveo(usercontent)?\.net:[0-9]+' |
+      head -n 1 || true
+    )"
+
+    # 2. Check for HTTP forwarding (e.g. "https://xxxx.serveousercontent.net")
+    if [[ -z "$SERVEO_ENDPOINT" ]]; then
+      SERVEO_ENDPOINT="$(
+        echo "$CLEAN_LOG" |
+        grep -Ei 'Forwarding HTTP traffic from' |
+        grep -Eo 'https?://[A-Za-z0-9.-]+\.serveousercontent\.net' |
+        head -n 1 || true
+      )"
+    fi
+
+    # 3. Generic fallback match for host:port
+    if [[ -z "$SERVEO_ENDPOINT" ]]; then
+      SERVEO_ENDPOINT="$(
+        echo "$CLEAN_LOG" |
+        grep -Eo 'serveo\.net:[0-9]+' |
+        head -n 1 || true
+      )"
+    fi
+
     if [[ -n "$SERVEO_ENDPOINT" ]]; then
       break
     fi
   fi
+
+  # Check if tunnel process died early
+  if [[ -f /tmp/serveo.pid ]]; then
+    PID="$(cat /tmp/serveo.pid 2>/dev/null || true)"
+    if [[ -n "$PID" ]] && ! kill -0 "$PID" 2>/dev/null; then
+      echo "! Serveo SSH tunnel process died during startup (PID $PID)"
+      if [[ -f /tmp/serveo.log ]]; then
+        echo "--- serveo.log ---"
+        cat /tmp/serveo.log || true
+        echo "------------------"
+      fi
+      break
+    fi
+  fi
+
   sleep 1
 done
+
+if [[ -z "$SERVEO_ENDPOINT" && -f /tmp/serveo.log ]]; then
+  echo "! Could not detect Serveo tunnel endpoint"
+  echo "--- serveo.log ---"
+  cat /tmp/serveo.log || true
+  echo "------------------"
+fi
 
 # 4. Display connection details in project logging style
 echo
@@ -48,21 +98,3 @@ if [[ -n "$SERVEO_ENDPOINT" ]]; then
   echo "* For direct connection, enter '$SERVEO_ENDPOINT' into the RustDesk Client ID box"
 fi
 echo
-
-# 5. Populate GitHub Step Summary if running inside GitHub Actions
-if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
-  cat << EOF >> "$GITHUB_STEP_SUMMARY"
-### Connection information
-
-| | |
-| :--- | :--- |
-| **RustDesk ID** | \`$RUSTDESK_ID\` |
-| **Direct host** | \`${SERVEO_ENDPOINT:-Pending / Check Logs}\` |
-| **Console user** | \`$CONSOLE_USER\` |
-| **OS version** | \`$OS_VERSION\` |
-
-Connect via [rustdesk.com/web](https://rustdesk.com/web/) using the ID above.
-
-Connect via direct connection by entering \`${SERVEO_ENDPOINT:-serveo.net:PORT}\` into the RustDesk desktop client.
-EOF
-fi

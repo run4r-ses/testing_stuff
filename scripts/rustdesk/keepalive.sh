@@ -29,6 +29,24 @@ while true; do
     fi
   fi
 
+  # Watchdog: verify Serveo tunnel is alive
+  if [[ -f /tmp/serveo.pid ]]; then
+    PID="$(cat /tmp/serveo.pid 2>/dev/null || true)"
+    if [[ -z "$PID" ]] || ! kill -0 "$PID" 2>/dev/null; then
+      echo "! Serveo tunnel died, restarting..."
+      ssh \
+        -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null \
+        -o ServerAliveInterval=10 \
+        -o ServerAliveCountMax=3 \
+        -o ExitOnForwardFailure=yes \
+        -R 0:localhost:21118 \
+        serveo.net \
+        > /tmp/serveo.log 2>&1 &
+      echo $! > /tmp/serveo.pid
+    fi
+  fi
+
   echo "- [$(date '+%Y-%m-%d %H:%M:%S')] Keepalive monitor active (running for ${ELAPSED_MIN}m)"
   sleep 60
 done

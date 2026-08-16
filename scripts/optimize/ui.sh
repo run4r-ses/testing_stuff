@@ -68,6 +68,11 @@ echo "- Applying global system settings"
 sudo defaults write /Library/Preferences/com.apple.universalaccess reduceTransparency -bool true
 sudo defaults write /Library/Preferences/com.apple.universalaccess reduceMotion -bool true
 sudo defaults write /Library/Preferences/.GlobalPreferences AppleInterfaceStyle -string "Dark" 2>/dev/null || true
+sudo defaults write /Library/Preferences/.GlobalPreferences AppleInterfaceStyleSwitchesAutomatically -bool false 2>/dev/null || true
+
+# Restart preference daemons so global defaults take effect immediately
+killall cfprefsd 2>/dev/null || true
+sudo killall cfprefsd 2>/dev/null || true
 
 # ────────────────────────────────────────────────────────────────────
 # Generate a proper solid black wallpaper image (1280x720)
@@ -107,13 +112,22 @@ sudo cp /tmp/black.png /Users/Shared/black.png 2>/dev/null || true
 sudo chmod 644 /Users/Shared/black.png 2>/dev/null || true
 
 # ────────────────────────────────────────────────────────────────────
-# Apply wallpaper via desktoppr
+# Apply wallpaper and live Dark Mode appearance
 # ────────────────────────────────────────────────────────────────────
-echo "- Setting wallpaper via desktoppr"
+echo "- Setting appearance"
 
 CONSOLE_USER="$(stat -f '%Su' /dev/console 2>/dev/null || echo "runner")"
 CONSOLE_UID="$(id -u "$CONSOLE_USER" 2>/dev/null || echo "501")"
 TARGET_UID="$(id -u "$TARGET_USER" 2>/dev/null || echo "502")"
+
+# Activate live Dark Mode via System Events in user GUI sessions
+osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' 2>/dev/null || true
+if [[ -n "$CONSOLE_UID" && "$CONSOLE_UID" != "0" ]]; then
+  launchctl asuser "$CONSOLE_UID" sudo -u "$CONSOLE_USER" osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' 2>/dev/null || true
+fi
+if [[ -n "$TARGET_UID" && "$TARGET_UID" != "0" && "$TARGET_UID" != "$CONSOLE_UID" ]]; then
+  launchctl asuser "$TARGET_UID" sudo -u "$TARGET_USER" osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' 2>/dev/null || true
+fi
 
 if command -v desktoppr >/dev/null 2>&1; then
   desktoppr "/Users/Shared/black.png" 2>/dev/null || true
@@ -140,7 +154,7 @@ killall SystemUIServer 2>/dev/null || true
 # Give daemons time to respawn and apply
 sleep 2
 
-# Re-apply desktoppr after daemon restart (catches WallpaperAgent reset)
+# Re-apply desktoppr and dark mode after daemon restart
 if command -v desktoppr >/dev/null 2>&1; then
   echo "- Re-applying wallpaper after daemon restart"
   desktoppr "/Users/Shared/black.png" 2>/dev/null || true
@@ -149,3 +163,4 @@ if command -v desktoppr >/dev/null 2>&1; then
     sudo -u "$TARGET_USER" desktoppr "/Users/Shared/black.png" 2>/dev/null || true
   fi
 fi
+osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' 2>/dev/null || true

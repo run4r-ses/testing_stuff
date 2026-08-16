@@ -104,18 +104,16 @@ fi
 
 # Launch background Serveo SSH reverse tunnel for direct IP port (21118)
 echo "- Starting Serveo tunnel"
-(
-  while true; do
-    ssh -R 0:localhost:21118 \
-      -o StrictHostKeyChecking=no \
-      -o UserKnownHostsFile=/dev/null \
-      -o ServerAliveInterval=30 \
-      -o ServerAliveCountMax=3 \
-      -o ExitOnForwardFailure=no \
-      serveo.net >> /tmp/serveo.log 2>&1 || true
-    sleep 5
-  done
-) >/dev/null 2>&1 &
+ssh \
+  -o StrictHostKeyChecking=no \
+  -o UserKnownHostsFile=/dev/null \
+  -o ServerAliveInterval=10 \
+  -o ServerAliveCountMax=3 \
+  -o ExitOnForwardFailure=yes \
+  -R 0:localhost:21118 \
+  serveo.net \
+  > /tmp/serveo.log 2>&1 &
+echo $! > /tmp/serveo.pid
 
 # Fetch RustDesk ID
 echo "- Fetching RustDesk ID"
