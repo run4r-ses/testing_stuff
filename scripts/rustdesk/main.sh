@@ -11,24 +11,31 @@ PASSWORD="$RUSTDESK_PASSWORD"
 
 echo "* Configuring RustDesk"
 
-# Remove Gatekeeper quarantine
-echo "- Removing Gatekeeper quarantine"
-sudo xattr -cr /Applications/RustDesk.app 2>/dev/null || true
-sudo xattr -rd com.apple.quarantine /Applications/RustDesk.app 2>/dev/null || true
-
-# Run official service installer
-echo "- Installing service"
-sudo bash "$SCRIPT_DIR/install_service.sh" -u "$USERNAME"
-
-# Set password using official script / CLI
-echo "- Setting password"
-sudo bash "$SCRIPT_DIR/install_service.sh" -p "$PASSWORD"
-
 # Locate RustDesk binary
 RUSTDESK_BIN="/Applications/RustDesk.app/Contents/MacOS/RustDesk"
 if [[ ! -x "$RUSTDESK_BIN" && -x "/Applications/RustDesk.app/Contents/MacOS/rustdesk" ]]; then
   RUSTDESK_BIN="/Applications/RustDesk.app/Contents/MacOS/rustdesk"
 fi
+
+# Remove Gatekeeper quarantine
+echo "- Removing Gatekeeper quarantine"
+sudo xattr -cr /Applications/RustDesk.app 2>/dev/null || true
+sudo xattr -rd com.apple.quarantine /Applications/RustDesk.app 2>/dev/null || true
+
+# Run official service installer for runneradmin
+echo "- Installing service for $USERNAME"
+sudo bash "$SCRIPT_DIR/install_service.sh" -u "$USERNAME"
+
+# Set password
+echo "- Setting password"
+sudo -u "$USERNAME" "$RUSTDESK_BIN" --password "$PASSWORD" 2>/dev/null || true
+sudo "$RUSTDESK_BIN" --password "$PASSWORD" 2>/dev/null || true
+sleep 2
+
+# Start server process for user
+echo "- Starting RustDesk server"
+sudo -u "$USERNAME" nohup "$RUSTDESK_BIN" --server >/tmp/rustdesk.log 2>&1 &
+sleep 2
 
 # Fetch RustDesk ID
 echo "- Fetching RustDesk ID"
@@ -43,12 +50,10 @@ for i in {1..30}; do
     break
   fi
 
-  # Fallback: check config files
+  # Fallback: check user config files
   for CONF in \
     "/Users/$USERNAME/Library/Preferences/com.carriez.RustDesk/RustDesk2.toml" \
     "/Users/$USERNAME/Library/Preferences/com.carriez.RustDesk/RustDesk.toml" \
-    "/Users/runner/Library/Preferences/com.carriez.RustDesk/RustDesk2.toml" \
-    "/Users/runner/Library/Preferences/com.carriez.RustDesk/RustDesk.toml" \
     "/Library/Preferences/com.carriez.RustDesk/RustDesk2.toml" \
     "/var/root/Library/Preferences/com.carriez.RustDesk/RustDesk2.toml"; do
     if [[ -f "$CONF" ]]; then
@@ -71,7 +76,7 @@ fi
 echo
 echo "* macOS web desktop is ready"
 echo "* RustDesk ID:   $RUSTDESK_ID"
-echo "* Console user:  $(stat -f '%Su' /dev/console 2>/dev/null || whoami)"
+echo "* Console user:  $USERNAME"
 echo "* OS version:    $(sw_vers -productVersion 2>/dev/null || echo 'macOS')"
 echo "*"
 echo "* For web, you can connect via https://rustdesk.com/web/"

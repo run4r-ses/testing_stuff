@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TARGET_USER="${VNC_USERNAME:-runneradmin}"
+TARGET_USER="${RUSTDESK_USERNAME:-runneradmin}"
 TARGET_HOME="/Users/$TARGET_USER"
 
-echo "* Disabling visual effects and setting Dark Mode + solid black wallpaper"
+echo "* Disabling visual effects"
 
 apply_visual_optimizations() {
   local PREFIX="${1:-}"

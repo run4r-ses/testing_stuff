@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TARGET_USER="${VNC_USERNAME:-runneradmin}"
+TARGET_USER="${RUSTDESK_USERNAME:-runneradmin}"
 
 echo "* Skipping onboarding"
 
