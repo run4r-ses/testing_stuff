@@ -20,25 +20,25 @@ fi
 CONSOLE_USER="$(cat /tmp/rustdesk_user.txt 2>/dev/null || stat -f '%Su' /dev/console 2>/dev/null || echo "runner")"
 OS_VERSION="$(sw_vers -productVersion 2>/dev/null || echo "macOS")"
 
-# 3. Resolve direct tunnel host/port (localhost.run)
+# 3. Resolve direct tunnel host/port (bore.pub)
 TUNNEL_ENDPOINT=""
 for _ in {1..30}; do
   if [[ -f /tmp/tunnel.log ]]; then
     # Strip ANSI color/control codes
     CLEAN_LOG="$(sed -E 's/\x1B\[[0-9;]*[a-zA-Z]//g' /tmp/tunnel.log 2>/dev/null || true)"
 
-    # 1. Match TCP domain:port for localhost.run (e.g. *.lhrtunnel.pro:XXXXX or *.lhr.life:XXXXX)
+    # 1. Match "bore.pub:XXXXX"
     TUNNEL_ENDPOINT="$(
       echo "$CLEAN_LOG" |
-      grep -Eo '([A-Za-z0-9.-]+\.)?(lhrtunnel\.pro|lhr\.life|localhost\.run):[0-9]+' |
+      grep -Eo 'bore\.pub:[0-9]+' |
       head -n 1 || true
     )"
 
-    # 2. Generic fallback matching hostname:port from tunnel log
+    # 2. Generic fallback matching hostname:port from "listening at ..."
     if [[ -z "$TUNNEL_ENDPOINT" ]]; then
       TUNNEL_ENDPOINT="$(
         echo "$CLEAN_LOG" |
-        grep -Ei 'tunneled' |
+        grep -Ei 'listening at' |
         grep -Eo '[A-Za-z0-9.-]+\.[a-zA-Z]{2,}:[0-9]+' |
         head -n 1 || true
       )"
@@ -53,7 +53,7 @@ for _ in {1..30}; do
   if [[ -f /tmp/tunnel.pid ]]; then
     PID="$(cat /tmp/tunnel.pid 2>/dev/null || true)"
     if [[ -n "$PID" ]] && ! kill -0 "$PID" 2>/dev/null; then
-      echo "! localhost.run tunnel process died during startup (PID $PID)"
+      echo "! bore tunnel process died during startup (PID $PID)"
       if [[ -f /tmp/tunnel.log ]]; then
         echo "--- tunnel.log ---"
         cat /tmp/tunnel.log || true

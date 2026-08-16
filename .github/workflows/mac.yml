@@ -23,8 +23,8 @@ jobs:
           HOMEBREW_NO_INSTALL_CLEANUP: 1
           HOMEBREW_NO_ANALYTICS: 1
         run: |
-          echo "- Installing display utilities"
-          brew install displayplacer desktoppr
+          echo "- Installing display utilities and tunnel tools"
+          brew install displayplacer desktoppr bore-cli
 
           echo "- Installing RustDesk"
           brew install --cask rustdesk

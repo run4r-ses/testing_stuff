@@ -29,21 +29,15 @@ while true; do
     fi
   fi
 
-  # Watchdog: verify localhost.run tunnel is alive
+  # Watchdog: verify bore tunnel is alive
   if [[ -f /tmp/tunnel.pid ]]; then
     PID="$(cat /tmp/tunnel.pid 2>/dev/null || true)"
     if [[ -z "$PID" ]] || ! kill -0 "$PID" 2>/dev/null; then
-      echo "! localhost.run tunnel died, restarting..."
-      ssh \
-        -o StrictHostKeyChecking=no \
-        -o UserKnownHostsFile=/dev/null \
-        -o ServerAliveInterval=10 \
-        -o ServerAliveCountMax=3 \
-        -o ExitOnForwardFailure=yes \
-        -R 0:localhost:21118 \
-        nokey@localhost.run \
-        > /tmp/tunnel.log 2>&1 &
-      echo $! > /tmp/tunnel.pid
+      echo "! bore tunnel died, restarting..."
+      if command -v bore >/dev/null 2>&1; then
+        nohup bore local 21118 --to bore.pub > /tmp/tunnel.log 2>&1 &
+        echo $! > /tmp/tunnel.pid
+      fi
     fi
   fi
 

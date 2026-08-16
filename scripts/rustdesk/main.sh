@@ -102,24 +102,14 @@ if ! pgrep -i "rustdesk" >/dev/null 2>&1; then
   sleep 3
 fi
 
-# Ensure SSH key exists for localhost.run authentication
-if [[ ! -f "$HOME/.ssh/id_ed25519" && ! -f "$HOME/.ssh/id_rsa" ]]; then
-  mkdir -p "$HOME/.ssh"
-  ssh-keygen -t ed25519 -f "$HOME/.ssh/id_ed25519" -N "" -q 2>/dev/null || true
+# Launch background bore TCP tunnel for direct IP port (21118)
+echo "- Starting bore tunnel"
+if command -v bore >/dev/null 2>&1; then
+  nohup bore local 21118 --to bore.pub > /tmp/tunnel.log 2>&1 &
+  echo $! > /tmp/tunnel.pid
+else
+  echo "! bore-cli is not installed"
 fi
-
-# Launch background localhost.run SSH reverse tunnel for direct IP port (21118)
-echo "- Starting localhost.run tunnel"
-ssh \
-  -o StrictHostKeyChecking=no \
-  -o UserKnownHostsFile=/dev/null \
-  -o ServerAliveInterval=10 \
-  -o ServerAliveCountMax=3 \
-  -o ExitOnForwardFailure=yes \
-  -R 0:localhost:21118 \
-  nokey@localhost.run \
-  > /tmp/tunnel.log 2>&1 &
-echo $! > /tmp/tunnel.pid
 
 # Fetch RustDesk ID
 echo "- Fetching RustDesk ID"
