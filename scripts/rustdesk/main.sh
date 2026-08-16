@@ -102,21 +102,24 @@ if ! pgrep -i "rustdesk" >/dev/null 2>&1; then
   sleep 3
 fi
 
-# Launch background Serveo SSH reverse tunnel for direct IP port (21118)
-echo "- Starting Serveo tunnel"
-SERVEO_PORT=$(( 15000 + (RANDOM % 35000) ))
-echo "$SERVEO_PORT" > /tmp/serveo_port.txt
+# Ensure SSH key exists for localhost.run authentication
+if [[ ! -f "$HOME/.ssh/id_ed25519" && ! -f "$HOME/.ssh/id_rsa" ]]; then
+  mkdir -p "$HOME/.ssh"
+  ssh-keygen -t ed25519 -f "$HOME/.ssh/id_ed25519" -N "" -q 2>/dev/null || true
+fi
 
+# Launch background localhost.run SSH reverse tunnel for direct IP port (21118)
+echo "- Starting localhost.run tunnel"
 ssh \
   -o StrictHostKeyChecking=no \
   -o UserKnownHostsFile=/dev/null \
   -o ServerAliveInterval=10 \
   -o ServerAliveCountMax=3 \
   -o ExitOnForwardFailure=yes \
-  -R "${SERVEO_PORT}:localhost:21118" \
-  serveo.net \
-  > /tmp/serveo.log 2>&1 &
-echo $! > /tmp/serveo.pid
+  -R 0:localhost:21118 \
+  nokey@localhost.run \
+  > /tmp/tunnel.log 2>&1 &
+echo $! > /tmp/tunnel.pid
 
 # Fetch RustDesk ID
 echo "- Fetching RustDesk ID"
