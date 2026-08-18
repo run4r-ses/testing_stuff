@@ -3,10 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET_USER="${RUSTDESK_USERNAME:-goldenrecipe}"
-CONSOLE_USER="$(stat -f '%Su' /dev/console 2>/dev/null || echo "$TARGET_USER")"
-if [[ -z "$CONSOLE_USER" || "$CONSOLE_USER" == "root" ]]; then
-  CONSOLE_USER="$TARGET_USER"
-fi
+CONSOLE_USER="$TARGET_USER"
 CONSOLE_UID="$(id -u "$CONSOLE_USER" 2>/dev/null || echo "502")"
 
 if [[ -z "${RUSTDESK_PASSWORD:-}" ]]; then
