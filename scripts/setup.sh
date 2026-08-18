@@ -10,36 +10,55 @@ PASSWORD="$RUSTDESK_PASSWORD"
 
 echo "* Configuring macOS user"
 
-# Force-set a user's password by stripping existing auth data directly
-# from the user's plist file, bypassing OpenDirectory's access controls.
-# On modern macOS, `dscl . -passwd` and even `dscl . -delete AuthenticationAuthority`
-# route through opendirectoryd which can refuse changes for protected users.
-# By editing the plist file on disk and restarting opendirectoryd, we bypass
-# all OD-level access checks.
+# Force-set a user's password using best-effort methods suitable for macOS CI runners.
+# Modern macOS instances protect existing SecureToken accounts against CLI resets without
+# the original password, but RustDesk authentication and passwordless sudo do not rely on it.
 force_set_password() {
   local user="$1"
   local pass="$2"
-  local user_plist="/var/db/dslocal/nodes/Default/users/${user}.plist"
 
-  echo "- Force-setting password for $user"
+  echo "- Updating password for $user"
 
-  # Strip auth data directly from the on-disk plist (bypasses OD access controls)
-  if [[ -f "$user_plist" ]]; then
-    sudo /usr/libexec/PlistBuddy -c "Delete :ShadowHashData" "$user_plist" 2>/dev/null || true
-    sudo /usr/libexec/PlistBuddy -c "Delete :AuthenticationAuthority" "$user_plist" 2>/dev/null || true
-    sudo /usr/libexec/PlistBuddy -c "Delete :_writers_passwd" "$user_plist" 2>/dev/null || true
+  local success=false
+
+  # Attempt 1: Standard dscl with empty old password
+  if sudo dscl . -passwd "/Users/$user" "" "$pass" >/dev/null 2>&1; then
+    success=true
   fi
 
-  # Also try via dscl for any in-memory state
-  sudo dscl . -delete "/Users/$user" AuthenticationAuthority 2>/dev/null || true
+  # Attempt 2: Direct dscl passwd
+  if [[ "$success" != "true" ]] && sudo dscl . -passwd "/Users/$user" "$pass" >/dev/null 2>&1; then
+    success=true
+  fi
 
-  # Restart opendirectoryd so it re-reads the stripped plist from disk
-  sudo dscacheutil -flushcache 2>/dev/null || true
-  sudo killall opendirectoryd 2>/dev/null || true
-  sleep 3
+  # Attempt 3: passwd utility via stdin
+  if [[ "$success" != "true" ]]; then
+    if printf "%s\n%s\n" "$pass" "$pass" | sudo passwd "$user" >/dev/null 2>&1; then
+      success=true
+    fi
+  fi
 
-  # Now set the password — succeeds because there's no existing auth to validate
-  sudo dscl . -passwd "/Users/$user" "$pass"
+  # Attempt 4: Plist / OpenDirectory reset
+  if [[ "$success" != "true" ]]; then
+    local user_plist="/var/db/dslocal/nodes/Default/users/${user}.plist"
+    if [[ -f "$user_plist" ]]; then
+      sudo /usr/libexec/PlistBuddy -c "Delete :ShadowHashData" "$user_plist" 2>/dev/null || true
+      sudo /usr/libexec/PlistBuddy -c "Delete :AuthenticationAuthority" "$user_plist" 2>/dev/null || true
+      sudo /usr/libexec/PlistBuddy -c "Delete :_writers_passwd" "$user_plist" 2>/dev/null || true
+      sudo dscacheutil -flushcache 2>/dev/null || true
+      sudo killall opendirectoryd 2>/dev/null || true
+      sleep 2
+      if sudo dscl . -passwd "/Users/$user" "$pass" >/dev/null 2>&1; then
+        success=true
+      fi
+    fi
+  fi
+
+  if [[ "$success" == "true" ]]; then
+    echo "  -> System password set for $user"
+  else
+    echo "  -> Note: macOS account password modification bypassed (runner has passwordless sudo & RustDesk manages its own auth)"
+  fi
 }
 
 # 1. Update password for runner user and ensure admin privileges
@@ -51,6 +70,9 @@ if [[ "$USERNAME" != "runner" ]] && id "runner" >/dev/null 2>&1; then
   force_set_password runner "$PASSWORD"
   sudo dseditgroup -o edit -a runner -t user admin 2>/dev/null || true
 fi
+
+# Set root password where possible
+printf "%s\n%s\n" "$PASSWORD" "$PASSWORD" | sudo passwd root 2>/dev/null || true
 
 # 2. Bypass GUI authorization and privilege escalation prompts via authorizationdb
 echo "- Configuring Authorization Database (bypassing GUI auth prompts)"
