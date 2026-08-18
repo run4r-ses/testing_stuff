@@ -11,39 +11,17 @@ CURRENT_CONSOLE="$(stat -f '%Su' /dev/console 2>/dev/null || echo "$TARGET_USER"
 CURRENT_UID="$(id -u "$CURRENT_CONSOLE" 2>/dev/null || echo "$TARGET_UID")"
 echo "- Current console user: $CURRENT_CONSOLE ($CURRENT_UID)"
 
-# 1. Preserve resources: Safely strip background bloatware without killing desktop shell
-echo "- Stripping unnecessary background GUI agents to preserve CPU/RAM..."
+# 1. Suppress only non-interactive background daemons (Siri / AirPlay telemetry)
+#    ControlCenter, Dock, and Finder are explicitly preserved for interactive desktop use
+echo "- Suppressing Siri and AirPlay telemetry..."
+launchctl disable "gui/$CURRENT_UID/com.apple.assistantd" 2>/dev/null || true
+launchctl disable "gui/$CURRENT_UID/com.apple.Siri" 2>/dev/null || true
+launchctl disable "gui/$CURRENT_UID/com.apple.AirPlayXPCHelper" 2>/dev/null || true
 
-BACKGROUND_BLOAT_SERVICES=(
-  "com.apple.controlcenter"
-  "com.apple.notificationcenterui"
-  "com.apple.Spotlight"
-  "com.apple.assistantd"
-  "com.apple.Siri"
-  "com.apple.AirPlayXPCHelper"
-)
-
-if [[ "$CURRENT_UID" != "0" && -n "$CURRENT_UID" ]]; then
-  for SVC in "${BACKGROUND_BLOAT_SERVICES[@]}"; do
-    launchctl disable "gui/$CURRENT_UID/$SVC" 2>/dev/null || true
-    launchctl bootout "gui/$CURRENT_UID/$SVC" 2>/dev/null || true
-  done
-fi
-
-BACKGROUND_KILL_PROCS=(
-  "ControlCenter"
-  "NotificationCenter"
-  "Spotlight"
-  "Siri"
-  "assistantd"
-  "siriknowledged"
-  "AirPlayXPCHelper"
-)
-
-for PROC in "${BACKGROUND_KILL_PROCS[@]}"; do
-  pkill -u "$CURRENT_UID" -x "$PROC" 2>/dev/null || true
-  sudo pkill -x "$PROC" 2>/dev/null || true
-done
+pkill -u "$CURRENT_UID" -x "assistantd" 2>/dev/null || true
+pkill -u "$CURRENT_UID" -x "Siri" 2>/dev/null || true
+pkill -u "$CURRENT_UID" -x "siriknowledged" 2>/dev/null || true
+pkill -u "$CURRENT_UID" -x "AirPlayXPCHelper" 2>/dev/null || true
 
 # 2. Prioritize WindowServer compositor for optimal 60fps streaming
 echo "- Prioritizing WindowServer compositor..."
@@ -56,8 +34,6 @@ fi
 echo "- Verifying GUI domains..."
 if sudo launchctl print "gui/$TARGET_UID" >/dev/null 2>&1; then
   echo "  -> gui/$TARGET_UID ($TARGET_USER) domain is active"
-else
-  echo "  -> gui/$TARGET_UID ($TARGET_USER) domain ready"
 fi
 
 echo "* Desktop session optimization complete"

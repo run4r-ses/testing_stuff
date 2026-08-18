@@ -34,14 +34,10 @@ apply_visual_optimizations() {
   ${PREFIX} defaults write com.apple.finder FXEnableExtensionChangeWarning -bool false 2>/dev/null || true
   ${PREFIX} defaults write com.apple.finder CreateDesktop -bool true 2>/dev/null || true
 
-  # Minimize Dock animations & delays
-  echo "- Minimizing Dock animations & delays"
+  # Minimize Dock animations
+  echo "- Configuring Dock"
   ${PREFIX} defaults write com.apple.dock launchanim -bool false 2>/dev/null || true
-  ${PREFIX} defaults write com.apple.dock expose-animation-duration -float 0.0 2>/dev/null || true
-  ${PREFIX} defaults write com.apple.dock autohide-time-modifier -float 0.0 2>/dev/null || true
-  ${PREFIX} defaults write com.apple.dock autohide-delay -float 0.0 2>/dev/null || true
-  ${PREFIX} defaults write com.apple.dock springboard-show-duration -float 0.0 2>/dev/null || true
-  ${PREFIX} defaults write com.apple.dock springboard-hide-duration -float 0.0 2>/dev/null || true
+  ${PREFIX} defaults write com.apple.dock autohide -bool false 2>/dev/null || true
 
   # Disable Window Shadows & Stage Manager / Widget overhead
   echo "- Disabling shadows, stage manager, widget overhead"
@@ -72,10 +68,6 @@ sudo defaults write /Library/Preferences/com.apple.universalaccess reduceTranspa
 sudo defaults write /Library/Preferences/com.apple.universalaccess reduceMotion -bool true 2>/dev/null || true
 sudo defaults write /Library/Preferences/.GlobalPreferences AppleInterfaceStyle -string "Dark" 2>/dev/null || true
 sudo defaults write /Library/Preferences/.GlobalPreferences AppleInterfaceStyleSwitchesAutomatically -bool false 2>/dev/null || true
-
-# Restart preference daemons so global defaults take effect immediately
-killall cfprefsd 2>/dev/null || true
-sudo killall cfprefsd 2>/dev/null || true
 
 # ────────────────────────────────────────────────────────────────────
 # Generate a proper solid black wallpaper image (1280x720)
@@ -117,36 +109,27 @@ sudo chmod 644 /Users/Shared/black.png 2>/dev/null || true
 # ────────────────────────────────────────────────────────────────────
 # Apply wallpaper and live Dark Mode appearance
 # ────────────────────────────────────────────────────────────────────
-echo "- Setting appearance"
+echo "- Setting appearance and wallpaper"
 
-# Activate live Dark Mode via System Events in user GUI sessions
+# Activate live Dark Mode via System Events
 osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' 2>/dev/null || true
-if [[ -n "$CONSOLE_UID" && "$CONSOLE_UID" != "0" ]]; then
-  launchctl asuser "$CONSOLE_UID" sudo -u "$CONSOLE_USER" osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' 2>/dev/null || true
-fi
 
+# Set wallpaper via desktoppr and AppleScript
 if command -v desktoppr >/dev/null 2>&1; then
   desktoppr "/Users/Shared/black.png" 2>/dev/null || true
   sudo -u "$CONSOLE_USER" desktoppr "/Users/Shared/black.png" 2>/dev/null || true
-  # Also set in launchctl GUI context
-  if [[ -n "$CONSOLE_UID" && "$CONSOLE_UID" != "0" ]]; then
-    launchctl asuser "$CONSOLE_UID" sudo -u "$CONSOLE_USER" desktoppr "/Users/Shared/black.png" 2>/dev/null || true
-  fi
 fi
 
-# Force wallpaper daemon, Dock, Finder, and SystemUIServer reload
-echo "- Restarting UI daemons to apply changes"
-killall WallpaperAgent 2>/dev/null || true
+osascript -e 'tell application "Finder" to set desktop picture to POSIX file "/Users/Shared/black.png"' 2>/dev/null || true
+osascript -e 'tell application "System Events" to set picture of every desktop to "/Users/Shared/black.png"' 2>/dev/null || true
+
+# Refresh Dock and Finder
 killall Dock 2>/dev/null || true
 killall Finder 2>/dev/null || true
-killall SystemUIServer 2>/dev/null || true
-
-# Give daemons time to respawn and apply
-sleep 2
+sleep 1
 
 # Re-apply desktoppr and dark mode after daemon restart
 if command -v desktoppr >/dev/null 2>&1; then
-  echo "- Re-applying wallpaper after daemon restart"
   desktoppr "/Users/Shared/black.png" 2>/dev/null || true
   sudo -u "$CONSOLE_USER" desktoppr "/Users/Shared/black.png" 2>/dev/null || true
 fi
