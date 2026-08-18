@@ -21,42 +21,42 @@ transform_console_user() {
 
   echo "- Rebinding console user UID $uid_val to $user ($realname_val)"
 
-  local runner_plist="/var/db/dslocal/nodes/Default/users/runner.plist"
-  local target_plist="/var/db/dslocal/nodes/Default/users/${user}.plist"
+  # Step 1: Use official dscl -change to rename RecordName from runner to target user
+  if dscl . -read "/Users/runner" >/dev/null 2>&1; then
+    echo "  -> Renaming RecordName: runner -> $user"
+    sudo dscl . -change "/Users/runner" RecordName runner "$user" 2>/dev/null || true
+  fi
 
-  # Transform the existing UID 501 dslocal record directly on disk
-  if [[ -f "$runner_plist" ]]; then
-    echo "  -> Modifying dslocal record: runner -> $user"
-    sudo /usr/libexec/PlistBuddy -c "Delete :ShadowHashData" "$runner_plist" 2>/dev/null || true
-    sudo /usr/libexec/PlistBuddy -c "Delete :AuthenticationAuthority" "$runner_plist" 2>/dev/null || true
-    sudo /usr/libexec/PlistBuddy -c "Delete :_writers_passwd" "$runner_plist" 2>/dev/null || true
-    sudo /usr/libexec/PlistBuddy -c "Delete :SecureToken" "$runner_plist" 2>/dev/null || true
-    sudo /usr/libexec/PlistBuddy -c "Set :name:0 ${user}" "$runner_plist" 2>/dev/null || true
-    sudo /usr/libexec/PlistBuddy -c "Set :realname:0 ${realname_val}" "$runner_plist" 2>/dev/null || true
-    sudo /usr/libexec/PlistBuddy -c "Set :home:0 ${home_val}" "$runner_plist" 2>/dev/null || true
+  # Step 2: Ensure target user record attributes in Directory Services
+  sudo dscl . -create "/Users/$user" RealName "$realname_val" 2>/dev/null || true
+  sudo dscl . -create "/Users/$user" NFSHomeDirectory "$home_val" 2>/dev/null || true
+  sudo dscl . -create "/Users/$user" UserShell "$shell_val" 2>/dev/null || true
+  sudo dscl . -create "/Users/$user" UniqueID "$uid_val" 2>/dev/null || true
+  sudo dscl . -create "/Users/$user" PrimaryGroupID "$gid_val" 2>/dev/null || true
+
+  # Step 3: Clear any token locks on the target plist so password can be set without old password
+  local target_plist="/var/db/dslocal/nodes/Default/users/${user}.plist"
+  local runner_plist="/var/db/dslocal/nodes/Default/users/runner.plist"
+  if [[ -f "$runner_plist" && ! -f "$target_plist" ]]; then
     sudo mv "$runner_plist" "$target_plist" 2>/dev/null || true
-  elif [[ -f "$target_plist" ]]; then
+  fi
+
+  if [[ -f "$target_plist" ]]; then
     sudo /usr/libexec/PlistBuddy -c "Delete :ShadowHashData" "$target_plist" 2>/dev/null || true
     sudo /usr/libexec/PlistBuddy -c "Delete :AuthenticationAuthority" "$target_plist" 2>/dev/null || true
     sudo /usr/libexec/PlistBuddy -c "Delete :_writers_passwd" "$target_plist" 2>/dev/null || true
     sudo /usr/libexec/PlistBuddy -c "Delete :SecureToken" "$target_plist" 2>/dev/null || true
+    sudo /usr/libexec/PlistBuddy -c "Set :name:0 ${user}" "$target_plist" 2>/dev/null || true
     sudo /usr/libexec/PlistBuddy -c "Set :realname:0 ${realname_val}" "$target_plist" 2>/dev/null || true
     sudo /usr/libexec/PlistBuddy -c "Set :home:0 ${home_val}" "$target_plist" 2>/dev/null || true
   fi
 
-  # Reload OpenDirectory subsystem
+  # Step 4: Flush OpenDirectory subsystem so user database is re-indexed immediately
   sudo dscacheutil -flushcache 2>/dev/null || true
   sudo killall opendirectoryd 2>/dev/null || true
   sleep 2
 
-  # Ensure attributes via Directory Services
-  sudo dscl . -create "/Users/$user" UniqueID "$uid_val" 2>/dev/null || true
-  sudo dscl . -create "/Users/$user" PrimaryGroupID "$gid_val" 2>/dev/null || true
-  sudo dscl . -create "/Users/$user" UserShell "$shell_val" 2>/dev/null || true
-  sudo dscl . -create "/Users/$user" RealName "$realname_val" 2>/dev/null || true
-  sudo dscl . -create "/Users/$user" NFSHomeDirectory "$home_val" 2>/dev/null || true
-
-  # Set account password
+  # Step 5: Set account password
   echo "  -> Setting account password for $user"
   if sudo dscl . -passwd "/Users/$user" "$pass" 2>/dev/null; then
     echo "  -> Password set successfully via dscl"
@@ -65,7 +65,7 @@ transform_console_user() {
     printf "%s\n%s\n" "$pass" "$pass" | sudo passwd "$user" 2>/dev/null || true
   fi
 
-  # Flush OpenDirectory caches
+  # Flush OpenDirectory caches again to commit new password hash
   sudo dscacheutil -flushcache 2>/dev/null || true
   sudo killall opendirectoryd 2>/dev/null || true
   sleep 2
