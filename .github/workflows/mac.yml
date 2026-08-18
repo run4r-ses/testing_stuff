@@ -35,6 +35,10 @@ jobs:
         shell: bash
         run: bash scripts/setup.sh
 
+      - name: Switch desktop to goldenrecipe
+        shell: bash
+        run: bash scripts/desktop.sh
+
       - name: Optimize macOS
         shell: bash
         run: bash scripts/optimize/main.sh
