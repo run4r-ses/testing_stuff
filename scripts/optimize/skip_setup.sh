@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TARGET_USER="${RUSTDESK_USERNAME:-runner}"
+TARGET_USER="${RUSTDESK_USERNAME:-goldenrecipe}"
 
 echo "* Skipping onboarding and setup assistants"
 

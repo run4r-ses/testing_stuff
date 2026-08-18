@@ -51,8 +51,12 @@ sudo renice -n -20 -p $(pgrep WindowServer) 2>/dev/null || true
 # Disable and unload background daemons that waste CPU and trigger screen refreshes
 echo "- Suppressing background services"
 
-CONSOLE_USER="$(stat -f '%Su' /dev/console 2>/dev/null || echo "runner")"
-CONSOLE_UID="$(id -u "$CONSOLE_USER" 2>/dev/null || echo "501")"
+TARGET_USER="${RUSTDESK_USERNAME:-goldenrecipe}"
+CONSOLE_USER="$(stat -f '%Su' /dev/console 2>/dev/null || echo "$TARGET_USER")"
+if [[ -z "$CONSOLE_USER" || "$CONSOLE_USER" == "root" ]]; then
+  CONSOLE_USER="$TARGET_USER"
+fi
+CONSOLE_UID="$(id -u "$CONSOLE_USER" 2>/dev/null || echo "502")"
 
 DISABLE_SERVICES=(
   "com.apple.metadata.mds"

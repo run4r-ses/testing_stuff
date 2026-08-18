@@ -9,7 +9,7 @@ jobs:
     timeout-minutes: 370
 
     env:
-      RUSTDESK_USERNAME: runner
+      RUSTDESK_USERNAME: goldenrecipe
       RUSTDESK_PASSWORD: ${{ secrets.RUSTDESK_PASSWORD }}
 
     steps:

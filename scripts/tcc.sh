@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-USERNAME="${RUSTDESK_USERNAME:-runner}"
+USERNAME="${RUSTDESK_USERNAME:-goldenrecipe}"
 
 echo "* Bypassing TCC permissions"
 
@@ -136,12 +136,15 @@ patch_tcc() {
 patch_tcc "$TCC_SYSTEM"
 
 # 2. Patch user TCC database
-if [[ -d "/Users/$USERNAME/Library/Application Support/com.apple.TCC" ]]; then
-  sudo chown -R \
-    "$USERNAME":staff \
-    "/Users/$USERNAME/Library/Application Support/com.apple.TCC" \
-    2>/dev/null || true
+USER_TCC_DIR="/Users/$USERNAME/Library/Application Support/com.apple.TCC"
+sudo mkdir -p "$USER_TCC_DIR"
+sudo chown -R "$USERNAME":staff "$USER_TCC_DIR" 2>/dev/null || true
+
+if [[ ! -f "$TCC_USER" && -f "$TCC_SYSTEM" ]]; then
+  sudo cp "$TCC_SYSTEM" "$TCC_USER" 2>/dev/null || true
+  sudo chown "$USERNAME":staff "$TCC_USER" 2>/dev/null || true
 fi
+
 patch_tcc "$TCC_USER"
 
 if [[ "$USERNAME" != "runner" && -d "/Users/runner/Library/Application Support/com.apple.TCC" ]]; then

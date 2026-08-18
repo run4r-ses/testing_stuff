@@ -17,7 +17,8 @@ if [[ -z "$RUSTDESK_ID" || "$RUSTDESK_ID" == "Unavailable" ]] && [[ -x "$RUSTDES
 fi
 
 # 2. Resolve Console User & OS Version
-CONSOLE_USER="$(cat /tmp/rustdesk_user.txt 2>/dev/null || stat -f '%Su' /dev/console 2>/dev/null || echo "runner")"
+TARGET_USER="${RUSTDESK_USERNAME:-goldenrecipe}"
+CONSOLE_USER="$(cat /tmp/rustdesk_user.txt 2>/dev/null || stat -f '%Su' /dev/console 2>/dev/null || echo "$TARGET_USER")"
 OS_VERSION="$(sw_vers -productVersion 2>/dev/null || echo "macOS")"
 
 # 3. Resolve direct tunnel host/port (bore.pub)
