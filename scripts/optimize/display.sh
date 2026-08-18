@@ -5,7 +5,7 @@ echo "* Configuring macOS display resolution"
 
 TARGET_USER="${RUSTDESK_USERNAME:-goldenrecipe}"
 CONSOLE_USER="$TARGET_USER"
-CONSOLE_UID="$(id -u "$CONSOLE_USER" 2>/dev/null || echo "502")"
+CONSOLE_UID="$(id -u "$CONSOLE_USER" 2>/dev/null || echo "501")"
 
 if command -v displayplacer >/dev/null 2>&1; then
   echo "- Querying display configuration..."

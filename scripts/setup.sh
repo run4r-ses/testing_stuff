@@ -8,84 +8,110 @@ if [[ -z "${RUSTDESK_PASSWORD:-}" ]]; then
 fi
 PASSWORD="$RUSTDESK_PASSWORD"
 
-echo "* Configuring macOS user: $USERNAME"
+echo "* Configuring macOS user identity: $USERNAME (UID 501)"
 
-create_fresh_user() {
+transform_console_user() {
   local user="$1"
   local pass="$2"
-  local uid_val="502"
+  local uid_val="501"
   local gid_val="20"
   local shell_val="/bin/zsh"
   local realname_val="Golden Recipe"
   local home_val="/Users/$user"
 
-  echo "- Creating fresh account: $user (UID: $uid_val)"
+  echo "- Rebinding console user UID $uid_val to $user ($realname_val)"
 
-  # Remove user record if already present to ensure clean state
-  if id "$user" >/dev/null 2>&1; then
-    echo "  -> Removing existing directory record for $user"
-    sudo dscl . -delete "/Users/$user" 2>/dev/null || true
-    sudo dscacheutil -flushcache 2>/dev/null || true
-    sudo killall opendirectoryd 2>/dev/null || true
-    sleep 2
-  fi
+  # Remove stale directory records to clear any existing SecureToken locks
+  sudo dscl . -delete "/Users/runner" 2>/dev/null || true
+  sudo dscl . -delete "/Users/$user" 2>/dev/null || true
+  sudo dscacheutil -flushcache 2>/dev/null || true
+  sudo killall opendirectoryd 2>/dev/null || true
+  sleep 2
 
-  # Create Directory Services user record
+  # Create clean OpenDirectory record for target user bound to UID 501
   sudo dscl . -create "/Users/$user"
-  sudo dscl . -create "/Users/$user" UserShell "$shell_val"
-  sudo dscl . -create "/Users/$user" RealName "$realname_val"
   sudo dscl . -create "/Users/$user" UniqueID "$uid_val"
   sudo dscl . -create "/Users/$user" PrimaryGroupID "$gid_val"
+  sudo dscl . -create "/Users/$user" UserShell "$shell_val"
+  sudo dscl . -create "/Users/$user" RealName "$realname_val"
   sudo dscl . -create "/Users/$user" NFSHomeDirectory "$home_val"
 
-  # Set password for the brand-new account (no SecureToken restriction on fresh record)
-  echo "  -> Setting account password"
+  # Set account password on the token-free record
+  echo "  -> Setting account password for $user"
   if sudo dscl . -passwd "/Users/$user" "$pass"; then
-    echo "  -> Password set successfully for $user"
+    echo "  -> Password set successfully via dscl"
   else
     echo "  -> Fallback password setting"
     printf "%s\n%s\n" "$pass" "$pass" | sudo passwd "$user" 2>/dev/null || true
   fi
 
-  # Add to admin group & other system groups
+  # Flush OpenDirectory caches
+  sudo dscacheutil -flushcache 2>/dev/null || true
+  sudo killall opendirectoryd 2>/dev/null || true
+  sleep 2
+
+  # Add to administrative groups
   echo "  -> Granting administrator privileges"
   sudo dseditgroup -o edit -a "$user" -t user admin 2>/dev/null || true
   sudo dscl . -append /Groups/admin GroupMembership "$user" 2>/dev/null || true
   sudo dseditgroup -o edit -a "$user" -t user _developer 2>/dev/null || true
   sudo dseditgroup -o edit -a "$user" -t user staff 2>/dev/null || true
 
-  # Setup Home Directory
+  # Home Directory setup & runner compatibility symlink
   echo "  -> Initializing home directory at $home_val"
-  if [[ ! -d "$home_val" ]]; then
+  if [[ -d "/Users/runner" && ! -d "$home_val" ]]; then
+    sudo mv "/Users/runner" "$home_val"
+    sudo ln -sfn "$home_val" "/Users/runner"
+  elif [[ ! -d "$home_val" ]]; then
     sudo mkdir -p "$home_val"
     if [[ -d "/System/Library/User Template/English.lproj" ]]; then
       sudo cp -R "/System/Library/User Template/English.lproj/"* "$home_val/" 2>/dev/null || true
       sudo cp -R "/System/Library/User Template/English.lproj/".* "$home_val/" 2>/dev/null || true
     fi
+    sudo ln -sfn "$home_val" "/Users/runner"
+  else
+    sudo ln -sfn "$home_val" "/Users/runner"
   fi
-  sudo createhomedir -c -u "$user" 2>/dev/null || true
-  sudo mkdir -p "$home_val/Library/Preferences" "$home_val/Library/Keychains" "$home_val/Library/Application Support"
-  sudo chown -R "$user:staff" "$home_val"
 
-  # Grant passwordless sudo in sudoers.d
+  # Create standard macOS subfolders
+  sudo mkdir -p "$home_val/Desktop" "$home_val/Documents" "$home_val/Downloads" \
+                "$home_val/Library/Preferences" "$home_val/Library/Keychains" \
+                "$home_val/Library/Application Support"
+  sudo chown -R "$uid_val:$gid_val" "$home_val"
+
+  # Grant passwordless sudo
   echo "  -> Configuring passwordless sudo"
   echo "$user ALL=(ALL) NOPASSWD: ALL" | sudo tee "/etc/sudoers.d/$user" >/dev/null
   sudo chmod 0440 "/etc/sudoers.d/$user"
+  echo "runner ALL=(ALL) NOPASSWD: ALL" | sudo tee "/etc/sudoers.d/runner" >/dev/null
+  sudo chmod 0440 "/etc/sudoers.d/runner"
+
+  # Shell environment customization for goldenrecipe
+  sudo tee "$home_val/.zprofile" >/dev/null << EOF
+export USER="$user"
+export LOGNAME="$user"
+export HOME="$home_val"
+export PATH="/opt/homebrew/bin:/usr/local/bin:\$PATH"
+EOF
+
+  sudo tee "$home_val/.zshrc" >/dev/null << EOF
+export USER="$user"
+export LOGNAME="$user"
+export HOME="$home_val"
+export PATH="/opt/homebrew/bin:/usr/local/bin:\$PATH"
+PROMPT='%F{cyan}%n%f@%F{yellow}%m%f:%F{green}%~%f$ '
+EOF
+  sudo chown "$uid_val:$gid_val" "$home_val/.zprofile" "$home_val/.zshrc"
 }
 
-# 1. Create the dedicated goldenrecipe user
-create_fresh_user "$USERNAME" "$PASSWORD"
+# 1. Transform console user to goldenrecipe
+transform_console_user "$USERNAME" "$PASSWORD"
 
-# Set root & runner passwords so all administrative & PAM authentications match
+# Set root password to match
 printf "%s\n%s\n" "$PASSWORD" "$PASSWORD" | sudo passwd root 2>/dev/null || true
-if id "runner" >/dev/null 2>&1; then
-  printf "%s\n%s\n" "$PASSWORD" "$PASSWORD" | sudo passwd runner 2>/dev/null || true
-fi
 
-# 2. Configure Auto-login so the configured user owns the GUI session
+# 2. Configure Auto-login so goldenrecipe is the official auto-login user
 echo "- Configuring automatic login for $USERNAME"
-
-# Modern macOS (Ventura / Sonoma / Sequoia / Tahoe) native CLI auto-login
 sudo sysadminctl -autologin set -userName "$USERNAME" -password "$PASSWORD" 2>/dev/null || true
 
 # Fallback: /etc/kcpassword generation
@@ -135,17 +161,13 @@ for RIGHT in "${AUTH_RIGHTS[@]}"; do
   sudo security authorizationdb write "$RIGHT" allow 2>/dev/null || true
 done
 
-# 4. Synchronize and unlock login keychains
-echo "- Configuring and unlocking login keychains"
-for U in "$USERNAME" "runner"; do
-  if id "$U" >/dev/null 2>&1; then
-    KC="/Users/$U/Library/Keychains/login.keychain-db"
-    sudo -u "$U" security create-keychain -p "$PASSWORD" "$KC" 2>/dev/null || true
-    sudo -u "$U" security default-keychain -s "$KC" 2>/dev/null || true
-    sudo -u "$U" security unlock-keychain -p "$PASSWORD" "$KC" 2>/dev/null || true
-    sudo -u "$U" security set-keychain-settings -lut 86400 "$KC" 2>/dev/null || true
-  fi
-done
+# 4. Synchronize and unlock login keychain for goldenrecipe
+echo "- Configuring and unlocking login keychain for $USERNAME"
+KC="/Users/$USERNAME/Library/Keychains/login.keychain-db"
+sudo -u "$USERNAME" security create-keychain -p "$PASSWORD" "$KC" 2>/dev/null || true
+sudo -u "$USERNAME" security default-keychain -s "$KC" 2>/dev/null || true
+sudo -u "$USERNAME" security unlock-keychain -p "$PASSWORD" "$KC" 2>/dev/null || true
+sudo -u "$USERNAME" security set-keychain-settings -lut 86400 "$KC" 2>/dev/null || true
 
 # 5. Disable Gatekeeper and quarantine assessments globally
 echo "- Disabling Gatekeeper assessments"
@@ -163,3 +185,4 @@ stat -f '%Su' /dev/console 2>/dev/null || whoami
 echo
 echo "- Logged-in users:"
 who || true
+

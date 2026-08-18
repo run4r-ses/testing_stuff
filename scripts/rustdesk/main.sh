@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET_USER="${RUSTDESK_USERNAME:-goldenrecipe}"
 CONSOLE_USER="$TARGET_USER"
-CONSOLE_UID="$(id -u "$CONSOLE_USER" 2>/dev/null || echo "502")"
+CONSOLE_UID="$(id -u "$CONSOLE_USER" 2>/dev/null || echo "501")"
 
 if [[ -z "${RUSTDESK_PASSWORD:-}" ]]; then
   echo "! RUSTDESK_PASSWORD environment variable is required"
@@ -46,7 +46,7 @@ EOF
   sudo cp "$DIR/RustDesk.toml" "$DIR/RustDesk2.toml"
 
   if [[ "$U" != "root" ]]; then
-    sudo chown -R "$U" "$DIR" 2>/dev/null || true
+    sudo chown -R "$CONSOLE_UID:staff" "$DIR" 2>/dev/null || true
   fi
 
   # Bypass macOS 15+ Sequoia Screen Capture "bypass window picker" alert
@@ -68,7 +68,7 @@ EOF
   done
 
   if [[ "$U" != "root" ]]; then
-    sudo chown -R "$U:staff" "$PLIST_DIR" 2>/dev/null || true
+    sudo chown -R "$CONSOLE_UID:staff" "$PLIST_DIR" 2>/dev/null || true
   fi
 done
 
@@ -77,12 +77,13 @@ sudo killall -9 replayd 2>/dev/null || true
 # Run official service installer for the active GUI console session
 echo "- Installing service for GUI console user $CONSOLE_USER ($CONSOLE_UID)"
 sudo bash "$SCRIPT_DIR/install_service.sh" -u "$CONSOLE_USER"
+sleep 2
 
 # Set password across root and console user configurations
 echo "- Setting password"
 sudo "$RUSTDESK_BIN" --password "$PASSWORD" 2>/dev/null || true
 sudo -u "$CONSOLE_USER" "$RUSTDESK_BIN" --password "$PASSWORD" 2>/dev/null || true
-sleep 2
+sleep 1
 
 # Ensure direct IP listener settings persist under [options] in RustDesk2.toml
 for U in "$CONSOLE_USER" "root"; do
@@ -160,3 +161,4 @@ echo "$RUSTDESK_ID" > /tmp/rustdesk_id.txt
 echo "$CONSOLE_USER" > /tmp/rustdesk_user.txt
 
 echo "* RustDesk configuration completed successfully"
+

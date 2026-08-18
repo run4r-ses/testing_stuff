@@ -53,7 +53,7 @@ echo "- Suppressing background services"
 
 TARGET_USER="${RUSTDESK_USERNAME:-goldenrecipe}"
 CONSOLE_USER="$TARGET_USER"
-CONSOLE_UID="$(id -u "$CONSOLE_USER" 2>/dev/null || echo "502")"
+CONSOLE_UID="$(id -u "$CONSOLE_USER" 2>/dev/null || echo "501")"
 
 DISABLE_SERVICES=(
   "com.apple.metadata.mds"
