@@ -76,11 +76,19 @@ create_fresh_user() {
 # 1. Create the dedicated goldenrecipe user
 create_fresh_user "$USERNAME" "$PASSWORD"
 
-# Set root password
+# Set root & runner passwords so all administrative & PAM authentications match
 printf "%s\n%s\n" "$PASSWORD" "$PASSWORD" | sudo passwd root 2>/dev/null || true
+if id "runner" >/dev/null 2>&1; then
+  printf "%s\n%s\n" "$PASSWORD" "$PASSWORD" | sudo passwd runner 2>/dev/null || true
+fi
 
-# 2. Configure Auto-login so the new user owns the GUI session
+# 2. Configure Auto-login so the configured user owns the GUI session
 echo "- Configuring automatic login for $USERNAME"
+
+# Modern macOS (Ventura / Sonoma / Sequoia / Tahoe) native CLI auto-login
+sudo sysadminctl -autologin set -userName "$USERNAME" -password "$PASSWORD" 2>/dev/null || true
+
+# Fallback: /etc/kcpassword generation
 sudo python3 -c "
 import sys
 key = [125, 137, 82, 35, 210, 188, 221, 234, 163, 185, 31]
@@ -127,13 +135,17 @@ for RIGHT in "${AUTH_RIGHTS[@]}"; do
   sudo security authorizationdb write "$RIGHT" allow 2>/dev/null || true
 done
 
-# 4. Synchronize and unlock login keychain for the new user
-echo "- Configuring and unlocking login keychain for $USERNAME"
-KEYCHAIN="/Users/$USERNAME/Library/Keychains/login.keychain-db"
-sudo -u "$USERNAME" security create-keychain -p "$PASSWORD" "$KEYCHAIN" 2>/dev/null || true
-sudo -u "$USERNAME" security default-keychain -s "$KEYCHAIN" 2>/dev/null || true
-sudo -u "$USERNAME" security unlock-keychain -p "$PASSWORD" "$KEYCHAIN" 2>/dev/null || true
-sudo -u "$USERNAME" security set-keychain-settings -lut 86400 "$KEYCHAIN" 2>/dev/null || true
+# 4. Synchronize and unlock login keychains
+echo "- Configuring and unlocking login keychains"
+for U in "$USERNAME" "runner"; do
+  if id "$U" >/dev/null 2>&1; then
+    KC="/Users/$U/Library/Keychains/login.keychain-db"
+    sudo -u "$U" security create-keychain -p "$PASSWORD" "$KC" 2>/dev/null || true
+    sudo -u "$U" security default-keychain -s "$KC" 2>/dev/null || true
+    sudo -u "$U" security unlock-keychain -p "$PASSWORD" "$KC" 2>/dev/null || true
+    sudo -u "$U" security set-keychain-settings -lut 86400 "$KC" 2>/dev/null || true
+  fi
+done
 
 # 5. Disable Gatekeeper and quarantine assessments globally
 echo "- Disabling Gatekeeper assessments"
