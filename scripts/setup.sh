@@ -10,55 +10,70 @@ PASSWORD="$RUSTDESK_PASSWORD"
 
 echo "* Configuring macOS user"
 
-# Force-set a user's password using best-effort methods suitable for macOS CI runners.
-# Modern macOS instances protect existing SecureToken accounts against CLI resets without
-# the original password, but RustDesk authentication and passwordless sudo do not rely on it.
+# Force-set a user's password by nuking the directory-services record and recreating it.
+# macOS 26 Tahoe protects SecureToken accounts against all standard CLI password resets
+# (dscl -passwd, passwd, plist manipulation) without the original password.  The only
+# reliable method is to destroy the DS record entirely — this vaporises the cryptographic
+# token binding — then rebuild the account from scratch with the desired password.
+# The user's UID, home directory, shell, and real name are preserved so filesystem
+# ownership and any running launchd session remain valid.
+#
+# Side-effects:
+#   • The account will NO LONGER have a SecureToken.  This is fine for CI runners —
+#     FileVault / secure boot are not managed by the runner user.
+#   • The login keychain will need to be re-synced (handled later in this script).
 force_set_password() {
   local user="$1"
   local pass="$2"
 
-  echo "- Updating password for $user"
+  echo "- Resetting password for $user (nuclear: delete + recreate record)"
 
-  local success=false
+  # Snapshot current attributes before deletion
+  local uid_val gid_val shell_val realname_val home_val
+  uid_val="$(sudo dscl . -read "/Users/$user" UniqueID  2>/dev/null | awk '{print $2}')" || true
+  gid_val="$(sudo dscl . -read "/Users/$user" PrimaryGroupID 2>/dev/null | awk '{print $2}')" || true
+  shell_val="$(sudo dscl . -read "/Users/$user" UserShell 2>/dev/null | awk '{print $2}')" || true
+  realname_val="$(sudo dscl . -read "/Users/$user" RealName 2>/dev/null | sed -n '2p' | xargs)" || true
+  home_val="$(sudo dscl . -read "/Users/$user" NFSHomeDirectory 2>/dev/null | awk '{print $2}')" || true
 
-  # Attempt 1: Standard dscl with empty old password
-  if sudo dscl . -passwd "/Users/$user" "" "$pass" >/dev/null 2>&1; then
-    success=true
-  fi
+  # Sane defaults if any attribute was empty
+  uid_val="${uid_val:-501}"
+  gid_val="${gid_val:-20}"
+  shell_val="${shell_val:-/bin/zsh}"
+  realname_val="${realname_val:-$user}"
+  home_val="${home_val:-/Users/$user}"
 
-  # Attempt 2: Direct dscl passwd
-  if [[ "$success" != "true" ]] && sudo dscl . -passwd "/Users/$user" "$pass" >/dev/null 2>&1; then
-    success=true
-  fi
+  echo "  -> Captured: UID=$uid_val GID=$gid_val shell=$shell_val home=$home_val"
 
-  # Attempt 3: passwd utility via stdin
-  if [[ "$success" != "true" ]]; then
-    if printf "%s\n%s\n" "$pass" "$pass" | sudo passwd "$user" >/dev/null 2>&1; then
-      success=true
-    fi
-  fi
+  # ---- Delete the directory services record (home folder is NOT touched) ----
+  sudo dscl . -delete "/Users/$user" 2>/dev/null || true
 
-  # Attempt 4: Plist / OpenDirectory reset
-  if [[ "$success" != "true" ]]; then
-    local user_plist="/var/db/dslocal/nodes/Default/users/${user}.plist"
-    if [[ -f "$user_plist" ]]; then
-      sudo /usr/libexec/PlistBuddy -c "Delete :ShadowHashData" "$user_plist" 2>/dev/null || true
-      sudo /usr/libexec/PlistBuddy -c "Delete :AuthenticationAuthority" "$user_plist" 2>/dev/null || true
-      sudo /usr/libexec/PlistBuddy -c "Delete :_writers_passwd" "$user_plist" 2>/dev/null || true
-      sudo dscacheutil -flushcache 2>/dev/null || true
-      sudo killall opendirectoryd 2>/dev/null || true
-      sleep 2
-      if sudo dscl . -passwd "/Users/$user" "$pass" >/dev/null 2>&1; then
-        success=true
-      fi
-    fi
-  fi
+  # Flush everything so OpenDirectory forgets the old record
+  sudo dscacheutil -flushcache 2>/dev/null || true
+  sudo killall opendirectoryd 2>/dev/null || true
+  sleep 3
 
-  if [[ "$success" == "true" ]]; then
-    echo "  -> System password set for $user"
+  # ---- Recreate the user from scratch ----
+  sudo dscl . -create "/Users/$user"
+  sudo dscl . -create "/Users/$user" UniqueID "$uid_val"
+  sudo dscl . -create "/Users/$user" PrimaryGroupID "$gid_val"
+  sudo dscl . -create "/Users/$user" UserShell "$shell_val"
+  sudo dscl . -create "/Users/$user" RealName "$realname_val"
+  sudo dscl . -create "/Users/$user" NFSHomeDirectory "$home_val"
+
+  # Set the password on the brand-new (token-free) record
+  if sudo dscl . -passwd "/Users/$user" "$pass" >/dev/null 2>&1; then
+    echo "  -> Password set successfully for $user"
   else
-    echo "  -> Note: macOS account password modification bypassed (runner has passwordless sudo & RustDesk manages its own auth)"
+    echo "  -> WARNING: dscl -passwd failed even after record recreation for $user"
   fi
+
+  # Restore admin group membership
+  sudo dscl . -append /Groups/admin GroupMembership "$user" 2>/dev/null || true
+  sudo dseditgroup -o edit -a "$user" -t user admin 2>/dev/null || true
+
+  # Fix home directory ownership (belt & suspenders — UID should match)
+  sudo chown -R "${uid_val}:${gid_val}" "$home_val" 2>/dev/null || true
 }
 
 # 1. Update password for runner user and ensure admin privileges
