@@ -10,85 +10,52 @@ PASSWORD="$RUSTDESK_PASSWORD"
 
 echo "* Configuring macOS user identity: $USERNAME (UID 501)"
 
-transform_console_user() {
+create_admin_user() {
   local user="$1"
   local pass="$2"
-  local uid_val="501"
-  local gid_val="20"
-  local shell_val="/bin/zsh"
   local realname_val="Golden Recipe"
   local home_val="/Users/$user"
 
-  echo "- Rebinding console user UID $uid_val to $user ($realname_val)"
-
-  # Step 1: Remove old tokenized runner and user records directly from dslocal storage
-  sudo rm -f /var/db/dslocal/nodes/Default/users/runner.plist \
-             "/var/db/dslocal/nodes/Default/users/${user}.plist" 2>/dev/null || true
-
-  # Step 2: Flush OpenDirectory so UID 501 is completely free and un-tokenized
-  sudo dscacheutil -flushcache 2>/dev/null || true
-  sudo killall opendirectoryd 2>/dev/null || true
-  sleep 2
-
-  # Step 3: Create fresh Directory Services record for $user at UID 501
-  sudo dscl . -create "/Users/$user"
-  sudo dscl . -create "/Users/$user" UniqueID "$uid_val"
-  sudo dscl . -create "/Users/$user" PrimaryGroupID "$gid_val"
-  sudo dscl . -create "/Users/$user" UserShell "$shell_val"
-  sudo dscl . -create "/Users/$user" RealName "$realname_val"
-  sudo dscl . -create "/Users/$user" NFSHomeDirectory "$home_val"
-
-  # Step 4: Set account password on the fresh tokenless record
-  echo "  -> Setting account password for $user"
-  if sudo dscl . -passwd "/Users/$user" "$pass"; then
-    echo "  -> Password set successfully for $user"
+  # 1. Create or ensure user using Apple's official sysadminctl CLI
+  if ! id "$user" >/dev/null 2>&1; then
+    echo "- Creating administrator account: $user via sysadminctl"
+    sudo sysadminctl -addUser "$user" -fullName "$realname_val" -password "$pass" -admin 2>/dev/null || {
+      echo "  -> Fallback account creation via dscl"
+      local next_uid="502"
+      sudo dscl . -create "/Users/$user"
+      sudo dscl . -create "/Users/$user" UserShell "/bin/zsh"
+      sudo dscl . -create "/Users/$user" RealName "$realname_val"
+      sudo dscl . -create "/Users/$user" UniqueID "$next_uid"
+      sudo dscl . -create "/Users/$user" PrimaryGroupID "20"
+      sudo dscl . -create "/Users/$user" NFSHomeDirectory "$home_val"
+      sudo dscl . -passwd "/Users/$user" "$pass" 2>/dev/null || true
+    }
   else
-    echo "  -> Fallback password setting"
-    printf "%s\n%s\n" "$pass" "$pass" | sudo passwd "$user" 2>/dev/null || true
+    echo "- Account already exists: $user"
   fi
 
-  # Step 5: Flush OpenDirectory to commit the changes
-  sudo dscacheutil -flushcache 2>/dev/null || true
-  sudo killall opendirectoryd 2>/dev/null || true
-  sleep 2
-
-  # Add to administrative groups
-  echo "  -> Granting administrator privileges"
+  # 2. Grant administrator group memberships
+  echo "  -> Ensuring administrator privileges"
   sudo dseditgroup -o edit -a "$user" -t user admin 2>/dev/null || true
   sudo dscl . -append /Groups/admin GroupMembership "$user" 2>/dev/null || true
   sudo dseditgroup -o edit -a "$user" -t user _developer 2>/dev/null || true
   sudo dseditgroup -o edit -a "$user" -t user staff 2>/dev/null || true
 
-  # Home Directory setup & runner compatibility symlink
+  # 3. Setup home directory structure
   echo "  -> Initializing home directory at $home_val"
-  if [[ -d "/Users/runner" && ! -d "$home_val" ]]; then
-    sudo mv "/Users/runner" "$home_val"
-    sudo ln -sfn "$home_val" "/Users/runner"
-  elif [[ ! -d "$home_val" ]]; then
-    sudo mkdir -p "$home_val"
-    if [[ -d "/System/Library/User Template/English.lproj" ]]; then
-      sudo cp -R "/System/Library/User Template/English.lproj/"* "$home_val/" 2>/dev/null || true
-      sudo cp -R "/System/Library/User Template/English.lproj/".* "$home_val/" 2>/dev/null || true
-    fi
-    sudo ln -sfn "$home_val" "/Users/runner"
-  else
-    sudo ln -sfn "$home_val" "/Users/runner"
-  fi
-
-  # Create standard macOS subfolders
-  sudo mkdir -p "$home_val/Desktop" "$home_val/Documents" "$home_val/Downloads" \
+  sudo mkdir -p "$home_val" "$home_val/Desktop" "$home_val/Documents" "$home_val/Downloads" \
                 "$home_val/Library/Preferences" "$home_val/Library/Keychains" \
                 "$home_val/Library/Application Support"
-  sudo chown -R "$uid_val:$gid_val" "$home_val"
+  sudo chown -R "$user:staff" "$home_val" 2>/dev/null || true
 
-  # Grant passwordless sudo
+  # 4. Grant passwordless sudo
   echo "  -> Configuring passwordless sudo"
   echo "$user ALL=(ALL) NOPASSWD: ALL" | sudo tee "/etc/sudoers.d/$user" >/dev/null
   sudo chmod 0440 "/etc/sudoers.d/$user"
   echo "runner ALL=(ALL) NOPASSWD: ALL" | sudo tee "/etc/sudoers.d/runner" >/dev/null
   sudo chmod 0440 "/etc/sudoers.d/runner"
 
-  # Shell environment customization for goldenrecipe
+  # 5. Shell environment customization for goldenrecipe
   sudo tee "$home_val/.zprofile" >/dev/null << EOF
 export USER="$user"
 export LOGNAME="$user"
@@ -103,11 +70,11 @@ export HOME="$home_val"
 export PATH="/opt/homebrew/bin:/usr/local/bin:\$PATH"
 PROMPT='%F{cyan}%n%f@%F{yellow}%m%f:%F{green}%~%f$ '
 EOF
-  sudo chown "$uid_val:$gid_val" "$home_val/.zprofile" "$home_val/.zshrc"
+  sudo chown -R "$user:staff" "$home_val/.zprofile" "$home_val/.zshrc" 2>/dev/null || true
 }
 
-# 1. Transform console user to goldenrecipe
-transform_console_user "$USERNAME" "$PASSWORD"
+# 1. Create the dedicated goldenrecipe user
+create_admin_user "$USERNAME" "$PASSWORD"
 
 # Set root password to match
 printf "%s\n%s\n" "$PASSWORD" "$PASSWORD" | sudo passwd root 2>/dev/null || true

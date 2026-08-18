@@ -3,7 +3,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET_USER="${RUSTDESK_USERNAME:-goldenrecipe}"
-CONSOLE_USER="$TARGET_USER"
+CONSOLE_USER="$(stat -f '%Su' /dev/console 2>/dev/null || whoami)"
+if [[ -z "$CONSOLE_USER" || "$CONSOLE_USER" == "root" ]]; then
+  CONSOLE_USER="runner"
+fi
 CONSOLE_UID="$(id -u "$CONSOLE_USER" 2>/dev/null || echo "501")"
 
 if [[ -z "${RUSTDESK_PASSWORD:-}" ]]; then
@@ -12,7 +15,7 @@ if [[ -z "${RUSTDESK_PASSWORD:-}" ]]; then
 fi
 PASSWORD="$RUSTDESK_PASSWORD"
 
-echo "* Configuring RustDesk for user $CONSOLE_USER ($CONSOLE_UID)"
+echo "* Configuring RustDesk for target user $TARGET_USER and console session $CONSOLE_USER ($CONSOLE_UID)"
 
 # Locate RustDesk binary
 RUSTDESK_BIN="/Applications/RustDesk.app/Contents/MacOS/RustDesk"
@@ -27,7 +30,7 @@ sudo xattr -rd com.apple.quarantine /Applications/RustDesk.app 2>/dev/null || tr
 
 # Pre-create preference directories and optimized config files
 echo "- Initializing preference directories and configuration"
-for U in "$CONSOLE_USER" "root"; do
+for U in "$TARGET_USER" "$CONSOLE_USER" "root"; do
   DIR="/Users/$U/Library/Preferences/com.carriez.RustDesk"
   [[ "$U" == "root" ]] && DIR="/var/root/Library/Preferences/com.carriez.RustDesk"
   sudo mkdir -p "$DIR"
