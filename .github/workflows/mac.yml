@@ -9,7 +9,7 @@ jobs:
     timeout-minutes: 370
 
     env:
-      RUSTDESK_USERNAME: goldenrecipe
+      RUSTDESK_USERNAME: runneradmin
       RUSTDESK_PASSWORD: ${{ secrets.RUSTDESK_PASSWORD }}
 
     steps:
@@ -34,10 +34,6 @@ jobs:
       - name: Setup user
         shell: bash
         run: bash scripts/setup.sh
-
-      - name: Switch desktop to goldenrecipe
-        shell: bash
-        run: bash scripts/desktop.sh
 
       - name: Optimize macOS
         shell: bash

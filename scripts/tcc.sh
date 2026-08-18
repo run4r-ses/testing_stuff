@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-USERNAME="${RUSTDESK_USERNAME:-goldenrecipe}"
+USERNAME="${RUSTDESK_USERNAME:-runneradmin}"
 
-echo "* Bypassing TCC permissions"
+echo "* Bypassing TCC"
 
 TCC_SYSTEM="/Library/Application Support/com.apple.TCC/TCC.db"
 TCC_USER="/Users/$USERNAME/Library/Application Support/com.apple.TCC/TCC.db"
@@ -132,21 +132,19 @@ patch_tcc() {
   echo "* TCC modification completed for $DB"
 }
 
-# 1. Patch system TCC database
+# Patch system TCC database
 patch_tcc "$TCC_SYSTEM"
 
-# 2. Patch user TCC database
-USER_TCC_DIR="/Users/$USERNAME/Library/Application Support/com.apple.TCC"
-sudo mkdir -p "$USER_TCC_DIR"
-sudo chown -R "$USERNAME":staff "$USER_TCC_DIR" 2>/dev/null || true
-
-if [[ ! -f "$TCC_USER" && -f "$TCC_SYSTEM" ]]; then
-  sudo cp "$TCC_SYSTEM" "$TCC_USER" 2>/dev/null || true
-  sudo chown "$USERNAME":staff "$TCC_USER" 2>/dev/null || true
+# Patch target user TCC database
+if [[ -d "/Users/$USERNAME/Library/Application Support/com.apple.TCC" ]]; then
+  sudo chown -R \
+    "$USERNAME":staff \
+    "/Users/$USERNAME/Library/Application Support/com.apple.TCC" \
+    2>/dev/null || true
 fi
-
 patch_tcc "$TCC_USER"
 
+# Patch runner user TCC database if distinct
 if [[ "$USERNAME" != "runner" && -d "/Users/runner/Library/Application Support/com.apple.TCC" ]]; then
   patch_tcc "/Users/runner/Library/Application Support/com.apple.TCC/TCC.db"
 fi
@@ -156,10 +154,9 @@ echo "* Restarting tccd daemon"
 sudo killall -9 tccd 2>/dev/null || true
 sleep 3
 
-# 3. Suppress Screen Capture approvals dialogs (macOS 15+ Sequoia / replayd)
 echo
 echo "- Suppressing Screen Capture alerts"
-for U in "$USERNAME" "root"; do
+for U in "$USERNAME" "runner" "root"; do
   if [[ "$U" == "root" ]]; then
     PLIST_DIR="/var/root/Library/Group Containers/group.com.apple.replayd"
   else

@@ -240,12 +240,13 @@ InstallViaShell()
 	# Daemon = system-wide (system domain), Agent = per-user (gui/<uid> domain)
 
 	Msg "Unload / Reload Daemon (system domain)"
-	# Ensure clean state: bootout prior instances
+	# Ensure clean state: disable + bootout (handles cases where service is stuck)
+	$SUDO launchctl disable "system/${FULL_NAME}_service" 2>/dev/null
 	$SUDO launchctl bootout "system/${FULL_NAME}_service" 2>/dev/null
 	$SUDO launchctl bootout system "$daemon_path" 2>/dev/null
+	# Also try legacy unload in case bootstrap API state is inconsistent
 	$SUDO launchctl unload -w "$daemon_path" 2>/dev/null
 	sleep 1
-	$SUDO launchctl enable "system/${FULL_NAME}_service" 2>/dev/null
 	if ! $SUDO launchctl bootstrap system "$daemon_path" 2>/dev/null; then
 		Msg "bootstrap failed — falling back to launchctl load -w"
 		if ! $SUDO launchctl load -w "$daemon_path"; then

@@ -2,8 +2,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TARGET_USER="${RUSTDESK_USERNAME:-goldenrecipe}"
-CONSOLE_USER="$(stat -f '%Su' /dev/console 2>/dev/null || whoami)"
+USERNAME="${RUSTDESK_USERNAME:-runneradmin}"
+CONSOLE_USER="$(stat -f '%Su' /dev/console 2>/dev/null || echo "runner")"
 if [[ -z "$CONSOLE_USER" || "$CONSOLE_USER" == "root" ]]; then
   CONSOLE_USER="runner"
 fi
@@ -15,7 +15,7 @@ if [[ -z "${RUSTDESK_PASSWORD:-}" ]]; then
 fi
 PASSWORD="$RUSTDESK_PASSWORD"
 
-echo "* Configuring RustDesk for target user $TARGET_USER and console session $CONSOLE_USER ($CONSOLE_UID)"
+echo "* Configuring RustDesk"
 
 # Locate RustDesk binary
 RUSTDESK_BIN="/Applications/RustDesk.app/Contents/MacOS/RustDesk"
@@ -30,7 +30,7 @@ sudo xattr -rd com.apple.quarantine /Applications/RustDesk.app 2>/dev/null || tr
 
 # Pre-create preference directories and optimized config files
 echo "- Initializing preference directories and configuration"
-for U in "$TARGET_USER" "$CONSOLE_USER" "root"; do
+for U in "$USERNAME" "$CONSOLE_USER" "root"; do
   DIR="/Users/$U/Library/Preferences/com.carriez.RustDesk"
   [[ "$U" == "root" ]] && DIR="/var/root/Library/Preferences/com.carriez.RustDesk"
   sudo mkdir -p "$DIR"
@@ -49,7 +49,7 @@ EOF
   sudo cp "$DIR/RustDesk.toml" "$DIR/RustDesk2.toml"
 
   if [[ "$U" != "root" ]]; then
-    sudo chown -R "$CONSOLE_UID:staff" "$DIR" 2>/dev/null || true
+    sudo chown -R "$U" "$DIR" 2>/dev/null || true
   fi
 
   # Bypass macOS 15+ Sequoia Screen Capture "bypass window picker" alert
@@ -71,7 +71,7 @@ EOF
   done
 
   if [[ "$U" != "root" ]]; then
-    sudo chown -R "$CONSOLE_UID:staff" "$PLIST_DIR" 2>/dev/null || true
+    sudo chown -R "$U:staff" "$PLIST_DIR" 2>/dev/null || true
   fi
 done
 
@@ -80,16 +80,23 @@ sudo killall -9 replayd 2>/dev/null || true
 # Run official service installer for the active GUI console session
 echo "- Installing service for GUI console user $CONSOLE_USER ($CONSOLE_UID)"
 sudo bash "$SCRIPT_DIR/install_service.sh" -u "$CONSOLE_USER"
-sleep 2
+
+# Also register preferences for target user if distinct
+if [[ "$USERNAME" != "$CONSOLE_USER" ]] && id "$USERNAME" >/dev/null 2>&1; then
+  sudo bash "$SCRIPT_DIR/install_service.sh" -u "$USERNAME" 2>/dev/null || true
+fi
 
 # Set password across root and console user configurations
 echo "- Setting password"
 sudo "$RUSTDESK_BIN" --password "$PASSWORD" 2>/dev/null || true
 sudo -u "$CONSOLE_USER" "$RUSTDESK_BIN" --password "$PASSWORD" 2>/dev/null || true
-sleep 1
+if [[ "$USERNAME" != "$CONSOLE_USER" ]] && id "$USERNAME" >/dev/null 2>&1; then
+  sudo -u "$USERNAME" "$RUSTDESK_BIN" --password "$PASSWORD" 2>/dev/null || true
+fi
+sleep 2
 
 # Ensure direct IP listener settings persist under [options] in RustDesk2.toml
-for U in "$CONSOLE_USER" "root"; do
+for U in "$USERNAME" "$CONSOLE_USER" "root"; do
   CONF="/Users/$U/Library/Preferences/com.carriez.RustDesk/RustDesk2.toml"
   [[ "$U" == "root" ]] && CONF="/var/root/Library/Preferences/com.carriez.RustDesk/RustDesk2.toml"
   if [[ -f "$CONF" ]]; then
@@ -141,6 +148,7 @@ for i in {1..30}; do
   for CONF in \
     "/Users/$CONSOLE_USER/Library/Preferences/com.carriez.RustDesk/RustDesk2.toml" \
     "/Users/$CONSOLE_USER/Library/Preferences/com.carriez.RustDesk/RustDesk.toml" \
+    "/Users/$USERNAME/Library/Preferences/com.carriez.RustDesk/RustDesk2.toml" \
     "/Library/Preferences/com.carriez.RustDesk/RustDesk2.toml" \
     "/var/root/Library/Preferences/com.carriez.RustDesk/RustDesk2.toml"; do
     if [[ -f "$CONF" ]]; then
@@ -164,4 +172,3 @@ echo "$RUSTDESK_ID" > /tmp/rustdesk_id.txt
 echo "$CONSOLE_USER" > /tmp/rustdesk_user.txt
 
 echo "* RustDesk configuration completed successfully"
-

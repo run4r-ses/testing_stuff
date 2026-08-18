@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TARGET_USER="${RUSTDESK_USERNAME:-goldenrecipe}"
+TARGET_USER="${RUSTDESK_USERNAME:-runneradmin}"
 
-echo "* Skipping onboarding and setup assistants"
+echo "* Skipping onboarding"
 
 PROD_VER="$(sw_vers -productVersion 2>/dev/null || echo "14.0")"
 BUILD_VER="$(sw_vers -buildVersion 2>/dev/null || echo "23A344")"
@@ -45,7 +45,7 @@ apply_user_setup_bypass() {
     return 0
   fi
 
-  echo "- Applying setup bypass for user $USER_NAME"
+  echo "- Applying for user $USER_NAME"
   sudo mkdir -p "$USER_HOME/Library/Preferences" "$USER_HOME/Library/Preferences/ByHost" "$USER_HOME/Library/Receipts"
 
   # Write via user domain if user exists
@@ -88,8 +88,8 @@ apply_user_setup_bypass() {
   sudo chown -R "$USER_NAME":staff "$USER_HOME/Library" 2>/dev/null || true
 }
 
-# Apply for runner user
-apply_user_setup_bypass "$TARGET_USER"
+# Apply for current runner user and target GUI user
+apply_user_setup_bypass "runner"
 if [[ "$TARGET_USER" != "runner" ]]; then
-  apply_user_setup_bypass "runner"
+  apply_user_setup_bypass "$TARGET_USER"
 fi

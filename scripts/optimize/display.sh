@@ -3,8 +3,7 @@ set -euo pipefail
 
 echo "* Configuring macOS display resolution"
 
-TARGET_USER="${RUSTDESK_USERNAME:-goldenrecipe}"
-CONSOLE_USER="$TARGET_USER"
+CONSOLE_USER="$(stat -f '%Su' /dev/console 2>/dev/null || echo "runner")"
 CONSOLE_UID="$(id -u "$CONSOLE_USER" 2>/dev/null || echo "501")"
 
 if command -v displayplacer >/dev/null 2>&1; then

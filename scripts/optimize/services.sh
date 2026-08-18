@@ -51,8 +51,7 @@ sudo renice -n -20 -p $(pgrep WindowServer) 2>/dev/null || true
 # Disable and unload background daemons that waste CPU and trigger screen refreshes
 echo "- Suppressing background services"
 
-TARGET_USER="${RUSTDESK_USERNAME:-goldenrecipe}"
-CONSOLE_USER="$TARGET_USER"
+CONSOLE_USER="$(stat -f '%Su' /dev/console 2>/dev/null || echo "runner")"
 CONSOLE_UID="$(id -u "$CONSOLE_USER" 2>/dev/null || echo "501")"
 
 DISABLE_SERVICES=(
@@ -65,7 +64,10 @@ DISABLE_SERVICES=(
   "com.apple.triald"
   "com.apple.parsecd"
   "com.apple.intelligenceplatformd"
+  "com.apple.remindd"
+  "com.apple.CalendarAgent"
   "com.apple.suggestd"
+  "com.apple.rapportd"
   "com.apple.biometrickitd"
   "com.apple.gamecontrollerd"
   "com.apple.AMPDeviceDiscoveryAgent"
@@ -101,11 +103,17 @@ KILL_PROCS=(
   "photolibraryd"
   "mediaanalysisd"
   "gamecontrollerd"
+  "ManagedClient"
   "suggestd"
+  "rapportd"
   "parsecd"
   "intelligenceplatformd"
   "triald"
   "UsageTrackingAgent"
+  "remindd"
+  "CalendarAgent"
+  "contactsd"
+  "coreduetd"
   "knowledge-agent"
   "mds"
   "mds_stores"
