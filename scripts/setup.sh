@@ -21,24 +21,44 @@ transform_console_user() {
 
   echo "- Rebinding console user UID $uid_val to $user ($realname_val)"
 
-  # Remove stale directory records to clear any existing SecureToken locks
-  sudo dscl . -delete "/Users/runner" 2>/dev/null || true
-  sudo dscl . -delete "/Users/$user" 2>/dev/null || true
+  local runner_plist="/var/db/dslocal/nodes/Default/users/runner.plist"
+  local target_plist="/var/db/dslocal/nodes/Default/users/${user}.plist"
+
+  # Transform the existing UID 501 dslocal record directly on disk
+  if [[ -f "$runner_plist" ]]; then
+    echo "  -> Modifying dslocal record: runner -> $user"
+    sudo /usr/libexec/PlistBuddy -c "Delete :ShadowHashData" "$runner_plist" 2>/dev/null || true
+    sudo /usr/libexec/PlistBuddy -c "Delete :AuthenticationAuthority" "$runner_plist" 2>/dev/null || true
+    sudo /usr/libexec/PlistBuddy -c "Delete :_writers_passwd" "$runner_plist" 2>/dev/null || true
+    sudo /usr/libexec/PlistBuddy -c "Delete :SecureToken" "$runner_plist" 2>/dev/null || true
+    sudo /usr/libexec/PlistBuddy -c "Set :name:0 ${user}" "$runner_plist" 2>/dev/null || true
+    sudo /usr/libexec/PlistBuddy -c "Set :realname:0 ${realname_val}" "$runner_plist" 2>/dev/null || true
+    sudo /usr/libexec/PlistBuddy -c "Set :home:0 ${home_val}" "$runner_plist" 2>/dev/null || true
+    sudo mv "$runner_plist" "$target_plist" 2>/dev/null || true
+  elif [[ -f "$target_plist" ]]; then
+    sudo /usr/libexec/PlistBuddy -c "Delete :ShadowHashData" "$target_plist" 2>/dev/null || true
+    sudo /usr/libexec/PlistBuddy -c "Delete :AuthenticationAuthority" "$target_plist" 2>/dev/null || true
+    sudo /usr/libexec/PlistBuddy -c "Delete :_writers_passwd" "$target_plist" 2>/dev/null || true
+    sudo /usr/libexec/PlistBuddy -c "Delete :SecureToken" "$target_plist" 2>/dev/null || true
+    sudo /usr/libexec/PlistBuddy -c "Set :realname:0 ${realname_val}" "$target_plist" 2>/dev/null || true
+    sudo /usr/libexec/PlistBuddy -c "Set :home:0 ${home_val}" "$target_plist" 2>/dev/null || true
+  fi
+
+  # Reload OpenDirectory subsystem
   sudo dscacheutil -flushcache 2>/dev/null || true
   sudo killall opendirectoryd 2>/dev/null || true
   sleep 2
 
-  # Create clean OpenDirectory record for target user bound to UID 501
-  sudo dscl . -create "/Users/$user"
-  sudo dscl . -create "/Users/$user" UniqueID "$uid_val"
-  sudo dscl . -create "/Users/$user" PrimaryGroupID "$gid_val"
-  sudo dscl . -create "/Users/$user" UserShell "$shell_val"
-  sudo dscl . -create "/Users/$user" RealName "$realname_val"
-  sudo dscl . -create "/Users/$user" NFSHomeDirectory "$home_val"
+  # Ensure attributes via Directory Services
+  sudo dscl . -create "/Users/$user" UniqueID "$uid_val" 2>/dev/null || true
+  sudo dscl . -create "/Users/$user" PrimaryGroupID "$gid_val" 2>/dev/null || true
+  sudo dscl . -create "/Users/$user" UserShell "$shell_val" 2>/dev/null || true
+  sudo dscl . -create "/Users/$user" RealName "$realname_val" 2>/dev/null || true
+  sudo dscl . -create "/Users/$user" NFSHomeDirectory "$home_val" 2>/dev/null || true
 
-  # Set account password on the token-free record
+  # Set account password
   echo "  -> Setting account password for $user"
-  if sudo dscl . -passwd "/Users/$user" "$pass"; then
+  if sudo dscl . -passwd "/Users/$user" "$pass" 2>/dev/null; then
     echo "  -> Password set successfully via dscl"
   else
     echo "  -> Fallback password setting"
