@@ -2,7 +2,6 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-USERNAME="${RUSTDESK_USERNAME:-runneradmin}"
 CONSOLE_USER="$(stat -f '%Su' /dev/console 2>/dev/null || echo "runner")"
 if [[ -z "$CONSOLE_USER" || "$CONSOLE_USER" == "root" ]]; then
   CONSOLE_USER="runner"
@@ -15,7 +14,7 @@ if [[ -z "${RUSTDESK_PASSWORD:-}" ]]; then
 fi
 PASSWORD="$RUSTDESK_PASSWORD"
 
-echo "* Configuring RustDesk"
+echo "* Configuring RustDesk for user $CONSOLE_USER ($CONSOLE_UID)"
 
 # Locate RustDesk binary
 RUSTDESK_BIN="/Applications/RustDesk.app/Contents/MacOS/RustDesk"
@@ -30,7 +29,7 @@ sudo xattr -rd com.apple.quarantine /Applications/RustDesk.app 2>/dev/null || tr
 
 # Pre-create preference directories and optimized config files
 echo "- Initializing preference directories and configuration"
-for U in "$USERNAME" "$CONSOLE_USER" "root"; do
+for U in "$CONSOLE_USER" "root"; do
   DIR="/Users/$U/Library/Preferences/com.carriez.RustDesk"
   [[ "$U" == "root" ]] && DIR="/var/root/Library/Preferences/com.carriez.RustDesk"
   sudo mkdir -p "$DIR"
@@ -81,22 +80,14 @@ sudo killall -9 replayd 2>/dev/null || true
 echo "- Installing service for GUI console user $CONSOLE_USER ($CONSOLE_UID)"
 sudo bash "$SCRIPT_DIR/install_service.sh" -u "$CONSOLE_USER"
 
-# Also register preferences for target user if distinct
-if [[ "$USERNAME" != "$CONSOLE_USER" ]] && id "$USERNAME" >/dev/null 2>&1; then
-  sudo bash "$SCRIPT_DIR/install_service.sh" -u "$USERNAME" 2>/dev/null || true
-fi
-
 # Set password across root and console user configurations
 echo "- Setting password"
 sudo "$RUSTDESK_BIN" --password "$PASSWORD" 2>/dev/null || true
 sudo -u "$CONSOLE_USER" "$RUSTDESK_BIN" --password "$PASSWORD" 2>/dev/null || true
-if [[ "$USERNAME" != "$CONSOLE_USER" ]] && id "$USERNAME" >/dev/null 2>&1; then
-  sudo -u "$USERNAME" "$RUSTDESK_BIN" --password "$PASSWORD" 2>/dev/null || true
-fi
 sleep 2
 
 # Ensure direct IP listener settings persist under [options] in RustDesk2.toml
-for U in "$USERNAME" "$CONSOLE_USER" "root"; do
+for U in "$CONSOLE_USER" "root"; do
   CONF="/Users/$U/Library/Preferences/com.carriez.RustDesk/RustDesk2.toml"
   [[ "$U" == "root" ]] && CONF="/var/root/Library/Preferences/com.carriez.RustDesk/RustDesk2.toml"
   if [[ -f "$CONF" ]]; then
@@ -148,7 +139,6 @@ for i in {1..30}; do
   for CONF in \
     "/Users/$CONSOLE_USER/Library/Preferences/com.carriez.RustDesk/RustDesk2.toml" \
     "/Users/$CONSOLE_USER/Library/Preferences/com.carriez.RustDesk/RustDesk.toml" \
-    "/Users/$USERNAME/Library/Preferences/com.carriez.RustDesk/RustDesk2.toml" \
     "/Library/Preferences/com.carriez.RustDesk/RustDesk2.toml" \
     "/var/root/Library/Preferences/com.carriez.RustDesk/RustDesk2.toml"; do
     if [[ -f "$CONF" ]]; then

@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-USERNAME="${RUSTDESK_USERNAME:-runneradmin}"
+USERNAME="${RUSTDESK_USERNAME:-runner}"
 if [[ -z "${RUSTDESK_PASSWORD:-}" ]]; then
   echo "! RUSTDESK_PASSWORD environment variable is required"
   exit 1
 fi
 PASSWORD="$RUSTDESK_PASSWORD"
-USER_UID="${RUSTDESK_UID:-502}"
 
-echo "* Creating GUI user $USERNAME"
+echo "* Configuring macOS user"
 
 # Force-set a user's password by stripping existing auth data directly
 # from the user's plist file, bypassing OpenDirectory's access controls.
@@ -43,44 +42,65 @@ force_set_password() {
   sudo dscl . -passwd "/Users/$user" "$pass"
 }
 
-if id "$USERNAME" >/dev/null 2>&1; then
-  echo "- User $USERNAME already exists, updating password"
-  force_set_password "$USERNAME" "$PASSWORD"
-else
-  echo "- Creating new user account for $USERNAME"
-  if sudo sysadminctl -addUser "$USERNAME" -fullName "runneradmin" -UID "$USER_UID" -password "$PASSWORD" -home "/Users/$USERNAME" -shell /bin/bash -admin 2>/dev/null; then
-    echo "- User $USERNAME created via sysadminctl"
-  else
-    echo "! Creating user $USERNAME via dscl as fallback"
-    sudo dscl . -create "/Users/$USERNAME"
-    sudo dscl . -create "/Users/$USERNAME" UserShell /bin/bash
-    sudo dscl . -create "/Users/$USERNAME" RealName "runneradmin"
-    sudo dscl . -create "/Users/$USERNAME" UniqueID "$USER_UID"
-    sudo dscl . -create "/Users/$USERNAME" PrimaryGroupID 20
-    sudo dscl . -create "/Users/$USERNAME" NFSHomeDirectory "/Users/$USERNAME"
-    sudo createhomedir -c -u "$USERNAME" >/dev/null 2>&1 || true
-  fi
-  force_set_password "$USERNAME" "$PASSWORD"
-fi
-
-# Ensure user is in admin group
+# 1. Update password for runner user and ensure admin privileges
+echo "- Updating account credentials for $USERNAME"
+force_set_password "$USERNAME" "$PASSWORD"
 sudo dseditgroup -o edit -a "$USERNAME" -t user admin 2>/dev/null || true
 
-# Also sync password to default runner account
-echo "- Updating default runner account password"
-force_set_password runner "$PASSWORD"
-sudo dseditgroup -o edit -a runner -t user admin 2>/dev/null || true
+if [[ "$USERNAME" != "runner" ]] && id "runner" >/dev/null 2>&1; then
+  force_set_password runner "$PASSWORD"
+  sudo dseditgroup -o edit -a runner -t user admin 2>/dev/null || true
+fi
+
+# 2. Bypass GUI authorization and privilege escalation prompts via authorizationdb
+echo "- Configuring Authorization Database (bypassing GUI auth prompts)"
+AUTH_RIGHTS=(
+  "system.preferences"
+  "system.preferences.security"
+  "system.preferences.sharing"
+  "system.preferences.network"
+  "system.preferences.energysaver"
+  "system.preferences.datetime"
+  "system.preferences.accessibility"
+  "system.privilege.admin"
+  "system.privilege.taskport"
+  "system.services.systemconfiguration.network"
+  "com.apple.trust-settings.user"
+  "com.apple.trust-settings.admin"
+  "authenticate"
+  "authenticate-admin"
+  "authenticate-session-owner"
+)
+
+for RIGHT in "${AUTH_RIGHTS[@]}"; do
+  sudo security authorizationdb write "$RIGHT" allow 2>/dev/null || true
+done
+
+# 3. Synchronize and unlock login keychain
+echo "- Configuring and unlocking login keychain"
+for U in "$USERNAME" "runner"; do
+  KEYCHAIN="/Users/$U/Library/Keychains/login.keychain-db"
+  if [[ -f "$KEYCHAIN" ]]; then
+    # Sync keychain password to $PASSWORD (tries with empty initial password and existing)
+    sudo -u "$U" security set-keychain-password -o "" -p "$PASSWORD" "$KEYCHAIN" 2>/dev/null || \
+    sudo -u "$U" security set-keychain-password -p "$PASSWORD" "$KEYCHAIN" 2>/dev/null || true
+
+    # Unlock keychain and set 24-hour timeout (prevent lock on idle/sleep)
+    sudo -u "$U" security unlock-keychain -p "$PASSWORD" "$KEYCHAIN" 2>/dev/null || \
+    sudo -u "$U" security unlock-keychain -p "" "$KEYCHAIN" 2>/dev/null || true
+
+    sudo -u "$U" security set-keychain-settings -lut 86400 "$KEYCHAIN" 2>/dev/null || true
+  fi
+done
+
+# 4. Disable Gatekeeper and quarantine assessments globally
+echo "- Disabling Gatekeeper assessments"
+sudo spctl --master-disable 2>/dev/null || true
+sudo defaults write /Library/Preferences/com.apple.security GKAutoRearm -bool false 2>/dev/null || true
 
 echo
 echo "- User account details:"
 id "$USERNAME"
-
-echo
-echo "- Configuring GUI session and auto-login"
-sudo defaults write \
-  /Library/Preferences/com.apple.loginwindow \
-  autoLoginUser \
-  "$USERNAME"
 
 echo
 echo "- Console user:"

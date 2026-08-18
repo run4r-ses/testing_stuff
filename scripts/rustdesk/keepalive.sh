@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-USERNAME="${RUSTDESK_USERNAME:-runneradmin}"
+CONSOLE_USER="$(cat /tmp/rustdesk_user.txt 2>/dev/null || stat -f '%Su' /dev/console 2>/dev/null || echo "runner")"
+if [[ -z "$CONSOLE_USER" || "$CONSOLE_USER" == "root" ]]; then
+  CONSOLE_USER="runner"
+fi
+
 START_TIME=$(date +%s)
 
 RUSTDESK_BIN="/Applications/RustDesk.app/Contents/MacOS/RustDesk"
@@ -9,7 +13,7 @@ if [[ ! -x "$RUSTDESK_BIN" && -x "/Applications/RustDesk.app/Contents/MacOS/rust
   RUSTDESK_BIN="/Applications/RustDesk.app/Contents/MacOS/rustdesk"
 fi
 
-echo "* Running keepalive monitor"
+echo "* Running keepalive monitor for user $CONSOLE_USER"
 
 cleanup() {
   echo "* Stopping keepalive monitor"
@@ -21,11 +25,11 @@ while true; do
   ELAPSED=$(( CURRENT_TIME - START_TIME ))
   ELAPSED_MIN=$(( ELAPSED / 60 ))
 
-  # Watchdog: verify RustDesk server is alive
+  # Watchdog: verify RustDesk server is alive in the GUI session
   if ! pgrep -i "rustdesk" >/dev/null 2>&1; then
-    echo "! RustDesk process not detected, kickstarting server"
+    echo "! RustDesk process not detected, kickstarting server for $CONSOLE_USER"
     if [[ -x "$RUSTDESK_BIN" ]]; then
-      sudo -u "$USERNAME" nohup "$RUSTDESK_BIN" --server >/tmp/rustdesk.log 2>&1 &
+      sudo -u "$CONSOLE_USER" nohup "$RUSTDESK_BIN" --server >/tmp/rustdesk.log 2>&1 &
     fi
   fi
 
