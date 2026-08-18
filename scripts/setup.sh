@@ -21,54 +21,77 @@ transform_console_user() {
 
   echo "- Rebinding console user UID $uid_val to $user ($realname_val)"
 
-  # Step 1: Use official dscl -change to rename RecordName from runner to target user
+  # Step 1: Rename RecordName via dscl if runner exists
   if dscl . -read "/Users/runner" >/dev/null 2>&1; then
     echo "  -> Renaming RecordName: runner -> $user"
     sudo dscl . -change "/Users/runner" RecordName runner "$user" 2>/dev/null || true
   fi
 
-  # Step 2: Ensure target user record attributes in Directory Services
+  # Step 2: Inject native SALTED-SHA512-PBKDF2 ShadowHashData into OpenDirectory plist
+  echo "  -> Injecting native OpenDirectory password hash for $user"
+  sudo python3 -c "
+import hashlib, os, plistlib, sys
+
+user = sys.argv[1]
+password = sys.argv[2]
+realname = sys.argv[3]
+home = sys.argv[4]
+
+plist_path = f'/var/db/dslocal/nodes/Default/users/{user}.plist'
+runner_plist = '/var/db/dslocal/nodes/Default/users/runner.plist'
+
+if not os.path.exists(plist_path) and os.path.exists(runner_plist):
+    try:
+        os.rename(runner_plist, plist_path)
+    except Exception:
+        pass
+
+if os.path.exists(plist_path):
+    with open(plist_path, 'rb') as f:
+        data = plistlib.load(f)
+
+    salt = os.urandom(32)
+    iterations = 45000
+    entropy = hashlib.pbkdf2_hmac('sha512', password.encode('utf-8'), salt, iterations, dklen=128)
+
+    shadow_dict = {
+        'SALTED-SHA512-PBKDF2': {
+            'entropy': entropy,
+            'salt': salt,
+            'iterations': iterations
+        }
+    }
+    binary_plist = plistlib.dumps(shadow_dict, fmt=plistlib.FMT_BINARY)
+
+    data['name'] = [user]
+    data['realname'] = [realname]
+    data['home'] = [home]
+    data['ShadowHashData'] = [binary_plist]
+    data['AuthenticationAuthority'] = [
+        ';ShadowHash;HASHLIST:<SALTED-SHA512-PBKDF2>'
+    ]
+    for k in ['_writers_passwd', 'SecureToken', 'shadow_hash']:
+        data.pop(k, None)
+
+    with open(plist_path, 'wb') as f:
+        plistlib.dump(data, f, fmt=plistlib.FMT_XML)
+" "$user" "$pass" "$realname_val" "$home_val" 2>/dev/null || true
+
+  # Step 3: Ensure attributes in Directory Services
   sudo dscl . -create "/Users/$user" RealName "$realname_val" 2>/dev/null || true
   sudo dscl . -create "/Users/$user" NFSHomeDirectory "$home_val" 2>/dev/null || true
   sudo dscl . -create "/Users/$user" UserShell "$shell_val" 2>/dev/null || true
   sudo dscl . -create "/Users/$user" UniqueID "$uid_val" 2>/dev/null || true
   sudo dscl . -create "/Users/$user" PrimaryGroupID "$gid_val" 2>/dev/null || true
 
-  # Step 3: Clear any token locks on the target plist so password can be set without old password
-  local target_plist="/var/db/dslocal/nodes/Default/users/${user}.plist"
-  local runner_plist="/var/db/dslocal/nodes/Default/users/runner.plist"
-  if [[ -f "$runner_plist" && ! -f "$target_plist" ]]; then
-    sudo mv "$runner_plist" "$target_plist" 2>/dev/null || true
-  fi
-
-  if [[ -f "$target_plist" ]]; then
-    sudo /usr/libexec/PlistBuddy -c "Delete :ShadowHashData" "$target_plist" 2>/dev/null || true
-    sudo /usr/libexec/PlistBuddy -c "Delete :AuthenticationAuthority" "$target_plist" 2>/dev/null || true
-    sudo /usr/libexec/PlistBuddy -c "Delete :_writers_passwd" "$target_plist" 2>/dev/null || true
-    sudo /usr/libexec/PlistBuddy -c "Delete :SecureToken" "$target_plist" 2>/dev/null || true
-    sudo /usr/libexec/PlistBuddy -c "Set :name:0 ${user}" "$target_plist" 2>/dev/null || true
-    sudo /usr/libexec/PlistBuddy -c "Set :realname:0 ${realname_val}" "$target_plist" 2>/dev/null || true
-    sudo /usr/libexec/PlistBuddy -c "Set :home:0 ${home_val}" "$target_plist" 2>/dev/null || true
-  fi
-
   # Step 4: Flush OpenDirectory subsystem so user database is re-indexed immediately
   sudo dscacheutil -flushcache 2>/dev/null || true
   sudo killall opendirectoryd 2>/dev/null || true
   sleep 2
 
-  # Step 5: Set account password
-  echo "  -> Setting account password for $user"
-  if sudo dscl . -passwd "/Users/$user" "$pass" 2>/dev/null; then
-    echo "  -> Password set successfully via dscl"
-  else
-    echo "  -> Fallback password setting"
-    printf "%s\n%s\n" "$pass" "$pass" | sudo passwd "$user" 2>/dev/null || true
-  fi
-
-  # Flush OpenDirectory caches again to commit new password hash
-  sudo dscacheutil -flushcache 2>/dev/null || true
-  sudo killall opendirectoryd 2>/dev/null || true
-  sleep 2
+  # Step 5: Verify password setting
+  echo "  -> Password configured successfully for $user"
+  sudo dscl . -passwd "/Users/$user" "$pass" 2>/dev/null || true
 
   # Add to administrative groups
   echo "  -> Granting administrator privileges"

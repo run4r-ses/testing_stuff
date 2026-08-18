@@ -12,62 +12,64 @@ apply_visual_optimizations() {
 
   # Enable Dark Mode
   echo "- Enabling Dark Mode"
-  ${PREFIX} defaults write NSGlobalDomain AppleInterfaceStyle -string "Dark"
-  ${PREFIX} defaults write NSGlobalDomain AppleInterfaceStyleSwitchesAutomatically -bool false
+  ${PREFIX} defaults write NSGlobalDomain AppleInterfaceStyle -string "Dark" 2>/dev/null || true
+  ${PREFIX} defaults write NSGlobalDomain AppleInterfaceStyleSwitchesAutomatically -bool false 2>/dev/null || true
 
   # Disable Transparency / Liquid Glass (massive VNC bandwidth reduction)
   echo "- Disabling Liquid Glass"
-  ${PREFIX} defaults write com.apple.universalaccess reduceTransparency -bool true
-  ${PREFIX} defaults write com.apple.Accessibility reduceTransparency -bool true
-  ${PREFIX} defaults write -g AppleEnableMenuBarTransparency -bool false
+  ${PREFIX} defaults write com.apple.universalaccess reduceTransparency -bool true 2>/dev/null || true
+  ${PREFIX} defaults write com.apple.Accessibility reduceTransparency -bool true 2>/dev/null || true
+  ${PREFIX} defaults write -g AppleEnableMenuBarTransparency -bool false 2>/dev/null || true
 
   # Enable Reduce Motion & disable CoreAnimation delays
   echo "- Disabling motion"
-  ${PREFIX} defaults write com.apple.universalaccess reduceMotion -bool true
-  ${PREFIX} defaults write NSGlobalDomain NSAutomaticWindowAnimationsEnabled -bool false
-  ${PREFIX} defaults write NSGlobalDomain NSWindowResizeTime -float 0.001
-  ${PREFIX} defaults write NSGlobalDomain QLPanelAnimationDuration -float 0
+  ${PREFIX} defaults write com.apple.universalaccess reduceMotion -bool true 2>/dev/null || true
+  ${PREFIX} defaults write NSGlobalDomain NSAutomaticWindowAnimationsEnabled -bool false 2>/dev/null || true
+  ${PREFIX} defaults write NSGlobalDomain NSWindowResizeTime -float 0.001 2>/dev/null || true
+  ${PREFIX} defaults write NSGlobalDomain QLPanelAnimationDuration -float 0 2>/dev/null || true
 
   # Disable Finder and QuickLook animations
   echo "- Disabling Finder and QuickLook animations"
-  ${PREFIX} defaults write com.apple.finder DisableAllAnimations -bool true
-  ${PREFIX} defaults write com.apple.finder FXEnableExtensionChangeWarning -bool false
-  ${PREFIX} defaults write com.apple.finder CreateDesktop -bool true
+  ${PREFIX} defaults write com.apple.finder DisableAllAnimations -bool true 2>/dev/null || true
+  ${PREFIX} defaults write com.apple.finder FXEnableExtensionChangeWarning -bool false 2>/dev/null || true
+  ${PREFIX} defaults write com.apple.finder CreateDesktop -bool true 2>/dev/null || true
 
   # Minimize Dock animations & delays
   echo "- Minimizing Dock animations & delays"
-  ${PREFIX} defaults write com.apple.dock launchanim -bool false
-  ${PREFIX} defaults write com.apple.dock expose-animation-duration -float 0.0
-  ${PREFIX} defaults write com.apple.dock autohide-time-modifier -float 0.0
-  ${PREFIX} defaults write com.apple.dock autohide-delay -float 0.0
-  ${PREFIX} defaults write com.apple.dock springboard-show-duration -float 0.0
-  ${PREFIX} defaults write com.apple.dock springboard-hide-duration -float 0.0
+  ${PREFIX} defaults write com.apple.dock launchanim -bool false 2>/dev/null || true
+  ${PREFIX} defaults write com.apple.dock expose-animation-duration -float 0.0 2>/dev/null || true
+  ${PREFIX} defaults write com.apple.dock autohide-time-modifier -float 0.0 2>/dev/null || true
+  ${PREFIX} defaults write com.apple.dock autohide-delay -float 0.0 2>/dev/null || true
+  ${PREFIX} defaults write com.apple.dock springboard-show-duration -float 0.0 2>/dev/null || true
+  ${PREFIX} defaults write com.apple.dock springboard-hide-duration -float 0.0 2>/dev/null || true
 
   # Disable Window Shadows & Stage Manager / Widget overhead
   echo "- Disabling shadows, stage manager, widget overhead"
-  ${PREFIX} defaults write com.apple.screencapture disable-shadow -bool true
-  ${PREFIX} defaults write com.apple.WindowManager StandardHideWidgets -bool true
-  ${PREFIX} defaults write com.apple.WindowManager EnableStandardClickToShowDesktop -bool false
-  ${PREFIX} defaults write com.apple.WindowManager HideDesktop -bool true
+  ${PREFIX} defaults write com.apple.screencapture disable-shadow -bool true 2>/dev/null || true
+  ${PREFIX} defaults write com.apple.WindowManager StandardHideWidgets -bool true 2>/dev/null || true
+  ${PREFIX} defaults write com.apple.WindowManager EnableStandardClickToShowDesktop -bool false 2>/dev/null || true
+  ${PREFIX} defaults write com.apple.WindowManager HideDesktop -bool true 2>/dev/null || true
 
   # Font smoothing for remote displays
   echo "- Setting font smoothing"
-  ${PREFIX} defaults write NSGlobalDomain AppleFontSmoothing -int 1
+  ${PREFIX} defaults write NSGlobalDomain AppleFontSmoothing -int 1 2>/dev/null || true
 }
 
-# Apply for current session user
-apply_visual_optimizations ""
+# Ensure preference directory exists and is owned by target user
+sudo mkdir -p "/Users/$CONSOLE_USER/Library/Preferences" "/Users/$CONSOLE_USER/Library/Preferences/ByHost" 2>/dev/null || true
+sudo chown -R "$CONSOLE_UID:20" "/Users/$CONSOLE_USER/Library/Preferences" 2>/dev/null || true
 
-# Apply for console user if distinct
-if [[ -d "/Users/$CONSOLE_USER" && "$CONSOLE_USER" != "$(id -un 2>/dev/null || true)" ]]; then
+# Apply for console user
+if id "$CONSOLE_USER" >/dev/null 2>&1; then
   echo "- Applying for user $CONSOLE_USER"
   sudo -u "$CONSOLE_USER" bash -c "$(declare -f apply_visual_optimizations); apply_visual_optimizations" 2>/dev/null || true
 fi
+apply_visual_optimizations ""
 
 # Set global system domain defaults
 echo "- Applying global system settings"
-sudo defaults write /Library/Preferences/com.apple.universalaccess reduceTransparency -bool true
-sudo defaults write /Library/Preferences/com.apple.universalaccess reduceMotion -bool true
+sudo defaults write /Library/Preferences/com.apple.universalaccess reduceTransparency -bool true 2>/dev/null || true
+sudo defaults write /Library/Preferences/com.apple.universalaccess reduceMotion -bool true 2>/dev/null || true
 sudo defaults write /Library/Preferences/.GlobalPreferences AppleInterfaceStyle -string "Dark" 2>/dev/null || true
 sudo defaults write /Library/Preferences/.GlobalPreferences AppleInterfaceStyleSwitchesAutomatically -bool false 2>/dev/null || true
 
