@@ -12,36 +12,9 @@ fi
 
 echo "* Configuring RustDesk unattended remote access"
 
-# 1. Install RustDesk.app if not present
+# 1. Verify RustDesk.app exists
 if [[ ! -d "/Applications/RustDesk.app" ]]; then
-  echo "- Installing RustDesk via Homebrew..."
-  brew install --cask rustdesk 2>/dev/null || true
-fi
-
-# Fallback: Download direct DMG from GitHub Releases if Homebrew failed
-if [[ ! -d "/Applications/RustDesk.app" ]]; then
-  echo "- Homebrew install unavailable, downloading RustDesk directly from GitHub Releases..."
-  ARCH="$(uname -m)"
-  if [[ "$ARCH" == "arm64" || "$ARCH" == "aarch64" ]]; then
-    DMG_URL="https://github.com/rustdesk/rustdesk/releases/download/1.3.7/rustdesk-1.3.7-aarch64.dmg"
-  else
-    DMG_URL="https://github.com/rustdesk/rustdesk/releases/download/1.3.7/rustdesk-1.3.7-x86_64.dmg"
-  fi
-
-  curl -fsSL "$DMG_URL" -o /tmp/rustdesk.dmg 2>/dev/null || true
-  if [[ -f /tmp/rustdesk.dmg ]]; then
-    echo "- Mounting RustDesk DMG..."
-    hdiutil attach /tmp/rustdesk.dmg -nobrowse -mountpoint /Volumes/RustDesk 2>/dev/null || true
-    if [[ -d "/Volumes/RustDesk/RustDesk.app" ]]; then
-      sudo cp -R /Volumes/RustDesk/RustDesk.app /Applications/
-    fi
-    hdiutil detach /Volumes/RustDesk 2>/dev/null || true
-    rm -f /tmp/rustdesk.dmg
-  fi
-fi
-
-if [[ ! -d "/Applications/RustDesk.app" ]]; then
-  echo "! Failed to install RustDesk.app"
+  echo "! RustDesk.app not found in /Applications"
   exit 1
 fi
 

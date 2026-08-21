@@ -37,12 +37,8 @@ sudo launchctl kickstart -k system/com.apple.screensharing 2>/dev/null || true
 echo "* Setting up noVNC web client"
 
 NOVNC_DIR="/Users/Shared/noVNC"
-if [[ ! -d "$NOVNC_DIR" ]]; then
-  echo "- Downloading noVNC client"
-  git clone --depth 1 https://github.com/novnc/noVNC.git "$NOVNC_DIR" 2>/dev/null || true
-fi
 
-# Ensure websockify is available and start websockify proxy (port 6080 -> 5900)
+# Start websockify proxy for noVNC (port 6080 -> 5900)
 echo "- Starting websockify proxy for noVNC (port 6080 -> 5900)"
 if command -v websockify >/dev/null 2>&1; then
   nohup websockify --web "$NOVNC_DIR" --heartbeat 30 6080 127.0.0.1:5900 > /tmp/websockify.log 2>&1 &
@@ -51,28 +47,10 @@ elif python3 -m websockify --help >/dev/null 2>&1; then
   nohup python3 -m websockify --web "$NOVNC_DIR" --heartbeat 30 6080 127.0.0.1:5900 > /tmp/websockify.log 2>&1 &
   echo $! > /tmp/websockify.pid
 else
-  echo "! websockify is not installed, attempting pip install"
-  pip3 install --break-system-packages websockify 2>/dev/null || pip3 install websockify 2>/dev/null || true
-  nohup websockify --web "$NOVNC_DIR" --heartbeat 30 6080 127.0.0.1:5900 > /tmp/websockify.log 2>&1 &
-  echo $! > /tmp/websockify.pid
+  echo "! websockify is not installed"
 fi
 
-# Ensure bore binary is available
 export PATH="/tmp:/usr/local/bin:/opt/homebrew/bin:$PATH"
-if ! command -v bore >/dev/null 2>&1; then
-  echo "- bore not found in PATH, downloading binary from GitHub releases..."
-  ARCH="$(uname -m)"
-  if [[ "$ARCH" == "arm64" || "$ARCH" == "aarch64" ]]; then
-    curl -fsSL "https://github.com/ekzhang/bore/releases/download/v0.5.2/bore-v0.5.2-aarch64-apple-darwin.tar.gz" -o /tmp/bore.tar.gz 2>/dev/null || true
-  else
-    curl -fsSL "https://github.com/ekzhang/bore/releases/download/v0.5.2/bore-v0.5.2-x86_64-apple-darwin.tar.gz" -o /tmp/bore.tar.gz 2>/dev/null || true
-  fi
-  if [[ -f /tmp/bore.tar.gz ]]; then
-    tar -xzf /tmp/bore.tar.gz -C /tmp/ 2>/dev/null || true
-    chmod +x /tmp/bore 2>/dev/null || true
-    sudo cp /tmp/bore /usr/local/bin/bore 2>/dev/null || sudo cp /tmp/bore /opt/homebrew/bin/bore 2>/dev/null || true
-  fi
-fi
 
 # Start Serveo HTTPS Tunnel (via native SSH) for noVNC web interface
 echo "- Starting Serveo HTTPS tunnel for noVNC (port 6080)"

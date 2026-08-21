@@ -17,9 +17,8 @@ async def keep_session():
                 while True:
                     await asyncio.sleep(15)
         except ImportError:
-            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] asyncvnc library not found, attempting auto-install...", flush=True)
-            os.system("pip3 install --break-system-packages asyncvnc >/dev/null 2>&1 || pip3 install asyncvnc >/dev/null 2>&1")
-            await asyncio.sleep(3)
+            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] asyncvnc library not found, retrying in 5s...", flush=True)
+            await asyncio.sleep(5)
         except Exception as e:
             print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Loopback keeper status: {e}, reconnecting in 5s...", flush=True)
             await asyncio.sleep(5)

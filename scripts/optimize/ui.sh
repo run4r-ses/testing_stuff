@@ -144,15 +144,7 @@ chmod 644 /tmp/black.png 2>/dev/null || true
 sudo cp /tmp/black.png /Users/Shared/black.png 2>/dev/null || true
 sudo chmod 644 /Users/Shared/black.png 2>/dev/null || true
 
-# Ensure desktoppr binary is available
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
-if ! command -v desktoppr >/dev/null 2>&1 && [[ ! -x /opt/homebrew/bin/desktoppr ]] && [[ ! -x /usr/local/bin/desktoppr ]]; then
-  echo "- Downloading and installing desktoppr utility fallback"
-  curl -fsSL "https://github.com/scriptingosx/desktoppr/releases/download/v0.4/desktoppr-0.4.pkg" -o /tmp/desktoppr.pkg 2>/dev/null || true
-  if [[ -f /tmp/desktoppr.pkg ]]; then
-    sudo installer -pkg /tmp/desktoppr.pkg -target / 2>/dev/null || true
-  fi
-fi
 
 # ────────────────────────────────────────────────────────────────────
 # Create on-login hook script and LaunchAgent for GUI sessions

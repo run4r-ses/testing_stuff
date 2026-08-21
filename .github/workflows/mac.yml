@@ -23,11 +23,10 @@ jobs:
           HOMEBREW_NO_INSTALL_CLEANUP: 1
           HOMEBREW_NO_ANALYTICS: 1
         run: |
-          echo "- Installing display utilities, tunnel tools, and websockify"
-          brew install --cask desktoppr 2>/dev/null || true
-          brew install displayplacer bore-cli 2>/dev/null || true
-          brew install websockify 2>/dev/null || pip3 install --break-system-packages websockify asyncvnc 2>/dev/null || pip3 install websockify asyncvnc 2>/dev/null || true
-          pip3 install --break-system-packages asyncvnc 2>/dev/null || pip3 install asyncvnc 2>/dev/null || true
+          echo "- Installing display utilities, RustDesk, tunnel tools, and Python packages"
+          brew install --cask desktoppr rustdesk 2>/dev/null || true
+          brew install displayplacer bore-cli websockify 2>/dev/null || true
+          pip3 install --break-system-packages websockify asyncvnc 2>/dev/null || pip3 install websockify asyncvnc 2>/dev/null || true
 
           # Direct fallback for desktoppr if Homebrew cask failed
           if ! command -v desktoppr >/dev/null 2>&1 && [[ ! -x /opt/homebrew/bin/desktoppr ]] && [[ ! -x /usr/local/bin/desktoppr ]]; then
@@ -38,9 +37,29 @@ jobs:
             fi
           fi
 
+          # Direct fallback for RustDesk if Homebrew cask failed
+          if [[ ! -d "/Applications/RustDesk.app" ]]; then
+            echo "- Downloading RustDesk DMG fallback from GitHub Releases"
+            ARCH="$(uname -m)"
+            if [[ "$ARCH" == "arm64" || "$ARCH" == "aarch64" ]]; then
+              DMG_URL="https://github.com/rustdesk/rustdesk/releases/download/1.3.7/rustdesk-1.3.7-aarch64.dmg"
+            else
+              DMG_URL="https://github.com/rustdesk/rustdesk/releases/download/1.3.7/rustdesk-1.3.7-x86_64.dmg"
+            fi
+            curl -fsSL "$DMG_URL" -o /tmp/rustdesk.dmg 2>/dev/null || true
+            if [[ -f /tmp/rustdesk.dmg ]]; then
+              hdiutil attach /tmp/rustdesk.dmg -nobrowse -mountpoint /Volumes/RustDesk 2>/dev/null || true
+              if [[ -d "/Volumes/RustDesk/RustDesk.app" ]]; then
+                sudo cp -R /Volumes/RustDesk/RustDesk.app /Applications/
+              fi
+              hdiutil detach /Volumes/RustDesk 2>/dev/null || true
+              rm -f /tmp/rustdesk.dmg
+            fi
+          fi
+
           # Direct fallback for bore if Homebrew was rate-limited or failed
-          if ! command -v bore >/dev/null 2>&1; then
-            echo "- Downloading bore binary from GitHub releases"
+          if ! command -v bore >/dev/null 2>&1 && [[ ! -x /usr/local/bin/bore ]] && [[ ! -x /opt/homebrew/bin/bore ]]; then
+            echo "- Downloading bore binary fallback from GitHub Releases"
             ARCH="$(uname -m)"
             if [[ "$ARCH" == "arm64" || "$ARCH" == "aarch64" ]]; then
               curl -fsSL "https://github.com/ekzhang/bore/releases/download/v0.5.2/bore-v0.5.2-aarch64-apple-darwin.tar.gz" -o /tmp/bore.tar.gz
