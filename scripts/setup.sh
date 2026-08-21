@@ -73,10 +73,12 @@ sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser "$U
 sudo python3 -c '
 import sys
 key = [125, 137, 82, 35, 210, 188, 221, 234, 163, 185, 31]
+key_len = len(key)
 pw = sys.argv[1].encode("utf-8")
-pad_len = max(12, ((len(pw) + 11) // 12) * 12)
-padded = pw + b"\x00" * (pad_len - len(pw))
-encoded = bytes([b ^ key[i % len(key)] for i, b in enumerate(padded)])
+remainder = len(pw) % key_len
+if remainder > 0:
+    pw += b"\x00" * (key_len - remainder)
+encoded = bytes([b ^ key[i % key_len] for i, b in enumerate(pw)])
 with open("/etc/kcpassword", "wb") as f:
     f.write(encoded)
 ' "$PASSWORD"

@@ -30,6 +30,9 @@ while true; do
   # Watchdog: verify screensharing service
   sudo launchctl kickstart -k system/com.apple.screensharing 2>/dev/null || true
 
+  # Watchdog: suppress any rogue onboarding / Setup Assistant popups
+  sudo killall "Setup Assistant" mbuseragent CloudConfigurationUI 2>/dev/null || true
+
   echo "- [$(date '+%Y-%m-%d %H:%M:%S')] Keepalive monitor active (running for ${ELAPSED_MIN}m)"
-  sleep 60
+  sleep 15
 done

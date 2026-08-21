@@ -153,6 +153,11 @@ echo "- Installing GUI session on-login optimization hook"
 
 cat << 'EOF' | sudo tee /Users/Shared/apply_rdp_ui.sh >/dev/null
 #!/usr/bin/env bash
+# Suppress Setup Assistant & onboarding agents immediately
+killall "Setup Assistant" 2>/dev/null || true
+killall mbuseragent 2>/dev/null || true
+killall CloudConfigurationUI 2>/dev/null || true
+
 if command -v desktoppr >/dev/null 2>&1; then
   desktoppr "/Users/Shared/black.png" 2>/dev/null || true
 fi
