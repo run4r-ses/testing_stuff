@@ -195,39 +195,5 @@ for U in "$TARGET_USER" "runner"; do
   fi
 done
 
-# Disable Setup Assistant LaunchAgents (excluding mbuseragent which is required for login session bootstrap)
-SETUP_AGENTS=(
-  "com.apple.SetupAssistant.launcher"
-  "com.apple.CloudConfigurationUI"
-)
-
-TARGET_UIDS=()
-if [[ -n "$CONSOLE_UID" && "$CONSOLE_UID" != "0" ]]; then
-  TARGET_UIDS+=("$CONSOLE_UID:$CONSOLE_USER")
-fi
-if [[ -n "$TARGET_UID" && "$TARGET_UID" != "0" && "$TARGET_UID" != "$CONSOLE_UID" ]]; then
-  TARGET_UIDS+=("$TARGET_UID:$TARGET_USER")
-fi
-
-for AGENT in "${SETUP_AGENTS[@]}"; do
-  sudo launchctl disable "system/$AGENT" 2>/dev/null || true
-  sudo launchctl bootout "system/$AGENT" 2>/dev/null || true
-  for ENTRY in "${TARGET_UIDS[@]}"; do
-    UID_VAL="${ENTRY%%:*}"
-    USER_VAL="${ENTRY##*:}"
-    launchctl disable "gui/$UID_VAL/$AGENT" 2>/dev/null || true
-    launchctl bootout "gui/$UID_VAL/$AGENT" 2>/dev/null || true
-  done
-done
-
-# Ensure mbuseragent is enabled so loginwindow can cleanly initialize GUI sessions
-sudo launchctl enable "system/com.apple.mbuseragent" 2>/dev/null || true
-for ENTRY in "${TARGET_UIDS[@]}"; do
-  UID_VAL="${ENTRY%%:*}"
-  launchctl enable "gui/$UID_VAL/com.apple.mbuseragent" 2>/dev/null || true
-done
-
-# Kill any active Setup Assistant or CloudConfigurationUI instances (do NOT kill mbuseragent)
-sudo killall "Setup Assistant" 2>/dev/null || true
-sudo killall CloudConfigurationUI 2>/dev/null || true
+echo "* Onboarding preferences configured successfully"
 

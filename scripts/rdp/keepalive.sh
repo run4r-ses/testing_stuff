@@ -76,14 +76,11 @@ while true; do
     fi
   fi
 
-  # Watchdog: only kickstart screensharing if the daemon actually died (NEVER use -k as that terminates active client sessions)
-  if ! pgrep -f "screensharingd" >/dev/null 2>&1; then
-    echo "! screensharing daemon died, restarting..."
-    sudo launchctl kickstart system/com.apple.screensharing 2>/dev/null || true
+  # Watchdog: ensure screensharing service is loaded in launchd
+  if ! sudo launchctl list com.apple.screensharing >/dev/null 2>&1; then
+    echo "! screensharing service not loaded in launchd, loading..."
+    sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist 2>/dev/null || true
   fi
-
-  # Watchdog: suppress any rogue onboarding / Setup Assistant popups
-  sudo killall "Setup Assistant" CloudConfigurationUI 2>/dev/null || true
 
   echo "- [$(date '+%Y-%m-%d %H:%M:%S')] Keepalive monitor active (running for ${ELAPSED_MIN}m)"
   sleep 15
