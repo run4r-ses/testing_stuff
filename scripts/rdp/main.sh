@@ -121,29 +121,10 @@ if ! command -v bore >/dev/null 2>&1; then
   fi
 fi
 
-# Ensure cloudflared binary is available
-if ! command -v cloudflared >/dev/null 2>&1; then
-  echo "- cloudflared not found in PATH, downloading binary from GitHub releases..."
-  ARCH="$(uname -m)"
-  if [[ "$ARCH" == "arm64" || "$ARCH" == "aarch64" ]]; then
-    curl -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz" -o /tmp/cloudflared.tgz 2>/dev/null || true
-  else
-    curl -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz" -o /tmp/cloudflared.tgz 2>/dev/null || true
-  fi
-  if [[ -f /tmp/cloudflared.tgz ]]; then
-    tar -xzf /tmp/cloudflared.tgz -C /tmp/ 2>/dev/null || true
-    chmod +x /tmp/cloudflared 2>/dev/null || true
-    sudo cp /tmp/cloudflared /usr/local/bin/cloudflared 2>/dev/null || sudo cp /tmp/cloudflared /opt/homebrew/bin/cloudflared 2>/dev/null || true
-  fi
-fi
-
-# Start Cloudflare Quick Tunnel (HTTPS / WSS for noVNC web interface)
-if command -v cloudflared >/dev/null 2>&1 || [[ -x /tmp/cloudflared ]]; then
-  CLOUDFLARED_BIN="$(command -v cloudflared 2>/dev/null || echo "/tmp/cloudflared")"
-  echo "- Starting Cloudflare HTTPS Quick Tunnel for noVNC (port 6080)"
-  nohup "$CLOUDFLARED_BIN" tunnel --url http://localhost:6080 --no-autoupdate > /tmp/cloudflared.log 2>&1 &
-  echo $! > /tmp/cloudflared.pid
-fi
+# Start Serveo HTTPS Tunnel (via native SSH) for noVNC web interface
+echo "- Starting Serveo HTTPS tunnel for noVNC (port 6080)"
+nohup ssh -tt -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -R 80:localhost:6080 serveo.net > /tmp/serveo.log 2>&1 &
+echo $! > /tmp/serveo.pid
 
 # Start background bore tunnels
 if command -v bore >/dev/null 2>&1 || [[ -x /tmp/bore ]]; then

@@ -47,16 +47,13 @@ while true; do
     fi
   fi
 
-  # Watchdog: verify Cloudflare HTTPS tunnel is alive
-  if [[ -f /tmp/cloudflared.pid ]]; then
-    CF_PID="$(cat /tmp/cloudflared.pid 2>/dev/null || true)"
-    if [[ -z "$CF_PID" ]] || ! kill -0 "$CF_PID" 2>/dev/null; then
-      echo "! cloudflared tunnel died, restarting..."
-      if command -v cloudflared >/dev/null 2>&1 || [[ -x /tmp/cloudflared ]]; then
-        CLOUDFLARED_BIN="$(command -v cloudflared 2>/dev/null || echo "/tmp/cloudflared")"
-        nohup "$CLOUDFLARED_BIN" tunnel --url http://localhost:6080 --no-autoupdate > /tmp/cloudflared.log 2>&1 &
-        echo $! > /tmp/cloudflared.pid
-      fi
+  # Watchdog: verify Serveo HTTPS tunnel is alive
+  if [[ -f /tmp/serveo.pid ]]; then
+    SERVEO_PID="$(cat /tmp/serveo.pid 2>/dev/null || true)"
+    if [[ -z "$SERVEO_PID" ]] || ! kill -0 "$SERVEO_PID" 2>/dev/null; then
+      echo "! Serveo tunnel died, restarting..."
+      nohup ssh -tt -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -R 80:localhost:6080 serveo.net > /tmp/serveo.log 2>&1 &
+      echo $! > /tmp/serveo.pid
     fi
   fi
 

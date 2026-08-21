@@ -44,88 +44,128 @@ patch_tcc() {
     "kTCCServiceListenEvent"
     "kTCCServiceAppleEvents"
     "kTCCServiceSystemPolicyAllFiles"
+    "kTCCServiceSystemPolicySysAdminFiles"
+    "kTCCServiceSystemPolicyDesktopFolder"
+    "kTCCServiceSystemPolicyDocumentsFolder"
+    "kTCCServiceSystemPolicyDownloadsFolder"
   )
 
   local CLIENTS_BUNDLE=(
-    "com.carriez.rustdesk"
-    "com.carriez.RustDesk"
+    "com.apple.bash"
+    "com.apple.sh"
+    "com.apple.zsh"
+    "com.apple.osascript"
+    "com.apple.Terminal"
+    "com.apple.systemevents"
+    "com.apple.finder"
+    "com.apple.dock"
     "com.apple.screensharing.agent"
     "com.apple.screensharingd"
     "com.apple.RemoteDesktopAgent"
+    "com.carriez.rustdesk"
+    "com.carriez.RustDesk"
   )
 
   local CLIENTS_PATH=(
+    "/bin/bash"
+    "/bin/sh"
+    "/bin/zsh"
+    "/usr/bin/osascript"
+    "/usr/bin/python3"
+    "/usr/bin/tclsh"
+    "/usr/local/bin/desktoppr"
+    "/opt/homebrew/bin/desktoppr"
+    "/usr/local/bin/bore"
+    "/opt/homebrew/bin/bore"
+    "/tmp/bore"
     "/Applications/RustDesk.app/Contents/MacOS/RustDesk"
     "/Applications/RustDesk.app/Contents/MacOS/rustdesk"
     "/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/MacOS/ARDAgent"
     "/System/Library/CoreServices/RemoteManagement/screensharingd.bundle/Contents/MacOS/screensharingd"
   )
 
+  local INDIRECT_OBJECTS=(
+    "UNUSED"
+    "com.apple.systemevents"
+    "com.apple.finder"
+    "com.apple.dock"
+  )
+
   for SVC in "${SERVICES[@]}"; do
     for CLIENT in "${CLIENTS_BUNDLE[@]}"; do
-      sudo sqlite3 "$DB" "
-        INSERT OR REPLACE INTO access
-        (
-          service,
-          client,
-          client_type,
-          auth_value,
-          auth_reason,
-          auth_version,
-          policy_id,
-          indirect_object_identifier_type,
-          indirect_object_identifier,
-          flags,
-          last_modified
-        )
-        VALUES
-        (
-          '$SVC',
-          '$CLIENT',
-          0,
-          2,
-          2,
-          1,
-          NULL,
-          0,
-          'UNUSED',
-          0,
-          $NOW
-        );
-      " 2>/dev/null || true
+      for IND in "${INDIRECT_OBJECTS[@]}"; do
+        if [[ "$SVC" != "kTCCServiceAppleEvents" && "$IND" != "UNUSED" ]]; then
+          continue
+        fi
+        sudo sqlite3 "$DB" "
+          INSERT OR REPLACE INTO access
+          (
+            service,
+            client,
+            client_type,
+            auth_value,
+            auth_reason,
+            auth_version,
+            policy_id,
+            indirect_object_identifier_type,
+            indirect_object_identifier,
+            flags,
+            last_modified
+          )
+          VALUES
+          (
+            '$SVC',
+            '$CLIENT',
+            0,
+            2,
+            2,
+            1,
+            NULL,
+            0,
+            '$IND',
+            0,
+            $NOW
+          );
+        " 2>/dev/null || true
+      done
     done
 
     for CLIENT in "${CLIENTS_PATH[@]}"; do
-      sudo sqlite3 "$DB" "
-        INSERT OR REPLACE INTO access
-        (
-          service,
-          client,
-          client_type,
-          auth_value,
-          auth_reason,
-          auth_version,
-          policy_id,
-          indirect_object_identifier_type,
-          indirect_object_identifier,
-          flags,
-          last_modified
-        )
-        VALUES
-        (
-          '$SVC',
-          '$CLIENT',
-          1,
-          2,
-          2,
-          1,
-          NULL,
-          0,
-          'UNUSED',
-          0,
-          $NOW
-        );
-      " 2>/dev/null || true
+      for IND in "${INDIRECT_OBJECTS[@]}"; do
+        if [[ "$SVC" != "kTCCServiceAppleEvents" && "$IND" != "UNUSED" ]]; then
+          continue
+        fi
+        sudo sqlite3 "$DB" "
+          INSERT OR REPLACE INTO access
+          (
+            service,
+            client,
+            client_type,
+            auth_value,
+            auth_reason,
+            auth_version,
+            policy_id,
+            indirect_object_identifier_type,
+            indirect_object_identifier,
+            flags,
+            last_modified
+          )
+          VALUES
+          (
+            '$SVC',
+            '$CLIENT',
+            1,
+            2,
+            2,
+            1,
+            NULL,
+            0,
+            '$IND',
+            0,
+            $NOW
+          );
+        " 2>/dev/null || true
+      done
     done
   done
 
