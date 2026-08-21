@@ -5,8 +5,13 @@ START_TIME=$(date +%s)
 
 echo "* Running Apple Remote Desktop keepalive monitor"
 
+# Prevent macOS sleep, display sleep, and idle throttling
+caffeinate -dimsu &
+CAFFEINATE_PID=$!
+
 cleanup() {
   echo "* Stopping keepalive monitor"
+  kill "$CAFFEINATE_PID" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
@@ -62,17 +67,20 @@ while true; do
       echo "! websockify died, restarting..."
       NOVNC_DIR="/Users/Shared/noVNC"
       if command -v websockify >/dev/null 2>&1; then
-        nohup websockify --web "$NOVNC_DIR" 6080 127.0.0.1:5900 > /tmp/websockify.log 2>&1 &
+        nohup websockify --web "$NOVNC_DIR" --heartbeat 30 6080 127.0.0.1:5900 > /tmp/websockify.log 2>&1 &
         echo $! > /tmp/websockify.pid
       elif python3 -m websockify --help >/dev/null 2>&1; then
-        nohup python3 -m websockify --web "$NOVNC_DIR" 6080 127.0.0.1:5900 > /tmp/websockify.log 2>&1 &
+        nohup python3 -m websockify --web "$NOVNC_DIR" --heartbeat 30 6080 127.0.0.1:5900 > /tmp/websockify.log 2>&1 &
         echo $! > /tmp/websockify.pid
       fi
     fi
   fi
 
-  # Watchdog: verify screensharing service
-  sudo launchctl kickstart -k system/com.apple.screensharing 2>/dev/null || true
+  # Watchdog: only kickstart screensharing if the daemon actually died (NEVER use -k as that terminates active client sessions)
+  if ! pgrep -f "screensharingd" >/dev/null 2>&1; then
+    echo "! screensharing daemon died, restarting..."
+    sudo launchctl kickstart system/com.apple.screensharing 2>/dev/null || true
+  fi
 
   # Watchdog: suppress any rogue onboarding / Setup Assistant popups
   sudo killall "Setup Assistant" mbuseragent CloudConfigurationUI 2>/dev/null || true

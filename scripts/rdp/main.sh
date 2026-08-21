@@ -92,15 +92,15 @@ fi
 # Ensure websockify is available and start websockify proxy (port 6080 -> 5900)
 echo "- Starting websockify proxy for noVNC (port 6080 -> 5900)"
 if command -v websockify >/dev/null 2>&1; then
-  nohup websockify --web "$NOVNC_DIR" 6080 127.0.0.1:5900 > /tmp/websockify.log 2>&1 &
+  nohup websockify --web "$NOVNC_DIR" --heartbeat 30 6080 127.0.0.1:5900 > /tmp/websockify.log 2>&1 &
   echo $! > /tmp/websockify.pid
 elif python3 -m websockify --help >/dev/null 2>&1; then
-  nohup python3 -m websockify --web "$NOVNC_DIR" 6080 127.0.0.1:5900 > /tmp/websockify.log 2>&1 &
+  nohup python3 -m websockify --web "$NOVNC_DIR" --heartbeat 30 6080 127.0.0.1:5900 > /tmp/websockify.log 2>&1 &
   echo $! > /tmp/websockify.pid
 else
   echo "! websockify is not installed, attempting pip install"
   pip3 install --break-system-packages websockify 2>/dev/null || pip3 install websockify 2>/dev/null || true
-  nohup websockify --web "$NOVNC_DIR" 6080 127.0.0.1:5900 > /tmp/websockify.log 2>&1 &
+  nohup websockify --web "$NOVNC_DIR" --heartbeat 30 6080 127.0.0.1:5900 > /tmp/websockify.log 2>&1 &
   echo $! > /tmp/websockify.pid
 fi
 
