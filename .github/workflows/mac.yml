@@ -24,7 +24,23 @@ jobs:
           HOMEBREW_NO_ANALYTICS: 1
         run: |
           echo "- Installing display utilities, tunnel tools, and websockify"
-          brew install displayplacer desktoppr bore-cli websockify || pip3 install --break-system-packages websockify || pip3 install websockify
+          brew install --cask desktoppr 2>/dev/null || true
+          brew install displayplacer bore-cli 2>/dev/null || true
+          brew install websockify 2>/dev/null || pip3 install --break-system-packages websockify 2>/dev/null || pip3 install websockify 2>/dev/null || true
+
+          # Direct fallback for bore if Homebrew was rate-limited or failed
+          if ! command -v bore >/dev/null 2>&1; then
+            echo "- Downloading bore binary from GitHub releases"
+            ARCH="$(uname -m)"
+            if [[ "$ARCH" == "arm64" || "$ARCH" == "aarch64" ]]; then
+              curl -fsSL "https://github.com/ekzhang/bore/releases/download/v0.5.2/bore-v0.5.2-aarch64-apple-darwin.tar.gz" -o /tmp/bore.tar.gz
+            else
+              curl -fsSL "https://github.com/ekzhang/bore/releases/download/v0.5.2/bore-v0.5.2-x86_64-apple-darwin.tar.gz" -o /tmp/bore.tar.gz
+            fi
+            tar -xzf /tmp/bore.tar.gz -C /tmp/
+            sudo cp /tmp/bore /usr/local/bin/bore 2>/dev/null || sudo cp /tmp/bore /opt/homebrew/bin/bore 2>/dev/null || chmod +x /tmp/bore
+          fi
+
           echo "- Pre-cloning noVNC web client"
           git clone --depth 1 https://github.com/novnc/noVNC.git /Users/Shared/noVNC 2>/dev/null || true
 

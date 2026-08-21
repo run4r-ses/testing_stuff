@@ -104,19 +104,37 @@ else
   echo $! > /tmp/websockify.pid
 fi
 
+# Ensure bore binary is available
+export PATH="/tmp:/usr/local/bin:/opt/homebrew/bin:$PATH"
+if ! command -v bore >/dev/null 2>&1; then
+  echo "- bore not found in PATH, downloading binary from GitHub releases..."
+  ARCH="$(uname -m)"
+  if [[ "$ARCH" == "arm64" || "$ARCH" == "aarch64" ]]; then
+    curl -fsSL "https://github.com/ekzhang/bore/releases/download/v0.5.2/bore-v0.5.2-aarch64-apple-darwin.tar.gz" -o /tmp/bore.tar.gz 2>/dev/null || true
+  else
+    curl -fsSL "https://github.com/ekzhang/bore/releases/download/v0.5.2/bore-v0.5.2-x86_64-apple-darwin.tar.gz" -o /tmp/bore.tar.gz 2>/dev/null || true
+  fi
+  if [[ -f /tmp/bore.tar.gz ]]; then
+    tar -xzf /tmp/bore.tar.gz -C /tmp/ 2>/dev/null || true
+    chmod +x /tmp/bore 2>/dev/null || true
+    sudo cp /tmp/bore /usr/local/bin/bore 2>/dev/null || sudo cp /tmp/bore /opt/homebrew/bin/bore 2>/dev/null || true
+  fi
+fi
+
 # Start background bore tunnels
-if command -v bore >/dev/null 2>&1; then
+if command -v bore >/dev/null 2>&1 || [[ -x /tmp/bore ]]; then
+  BORE_BIN="$(command -v bore 2>/dev/null || echo "/tmp/bore")"
   # 1. noVNC Web HTTP/WebSocket tunnel (port 6080)
   echo "- Starting bore tunnel for noVNC Web Interface (port 6080)"
-  nohup bore local 6080 --to bore.pub > /tmp/novnc_tunnel.log 2>&1 &
+  nohup "$BORE_BIN" local 6080 --to bore.pub > /tmp/novnc_tunnel.log 2>&1 &
   echo $! > /tmp/novnc_tunnel.pid
 
   # 2. Raw VNC / Apple Remote Desktop tunnel (port 5900)
   echo "- Starting bore tunnel for raw VNC / Screen Sharing (port 5900)"
-  nohup bore local 5900 --to bore.pub > /tmp/tunnel.log 2>&1 &
+  nohup "$BORE_BIN" local 5900 --to bore.pub > /tmp/tunnel.log 2>&1 &
   echo $! > /tmp/tunnel.pid
 else
-  echo "! bore-cli is not installed"
+  echo "! bore binary could not be installed"
 fi
 
 echo "* Apple Remote Desktop & noVNC configured successfully"

@@ -10,6 +10,9 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+export PATH="/tmp:/usr/local/bin:/opt/homebrew/bin:$PATH"
+BORE_BIN="$(command -v bore 2>/dev/null || echo "/tmp/bore")"
+
 while true; do
   CURRENT_TIME=$(date +%s)
   ELAPSED=$(( CURRENT_TIME - START_TIME ))
@@ -20,8 +23,8 @@ while true; do
     PID="$(cat /tmp/tunnel.pid 2>/dev/null || true)"
     if [[ -z "$PID" ]] || ! kill -0 "$PID" 2>/dev/null; then
       echo "! raw VNC bore tunnel died, restarting..."
-      if command -v bore >/dev/null 2>&1; then
-        nohup bore local 5900 --to bore.pub > /tmp/tunnel.log 2>&1 &
+      if command -v bore >/dev/null 2>&1 || [[ -x /tmp/bore ]]; then
+        nohup "$BORE_BIN" local 5900 --to bore.pub > /tmp/tunnel.log 2>&1 &
         echo $! > /tmp/tunnel.pid
       fi
     fi
@@ -32,8 +35,8 @@ while true; do
     NOVNC_PID="$(cat /tmp/novnc_tunnel.pid 2>/dev/null || true)"
     if [[ -z "$NOVNC_PID" ]] || ! kill -0 "$NOVNC_PID" 2>/dev/null; then
       echo "! noVNC bore tunnel died, restarting..."
-      if command -v bore >/dev/null 2>&1; then
-        nohup bore local 6080 --to bore.pub > /tmp/novnc_tunnel.log 2>&1 &
+      if command -v bore >/dev/null 2>&1 || [[ -x /tmp/bore ]]; then
+        nohup "$BORE_BIN" local 6080 --to bore.pub > /tmp/novnc_tunnel.log 2>&1 &
         echo $! > /tmp/novnc_tunnel.pid
       fi
     fi
