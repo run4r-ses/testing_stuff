@@ -42,6 +42,19 @@ while true; do
     fi
   fi
 
+  # Watchdog: verify Cloudflare HTTPS tunnel is alive
+  if [[ -f /tmp/cloudflared.pid ]]; then
+    CF_PID="$(cat /tmp/cloudflared.pid 2>/dev/null || true)"
+    if [[ -z "$CF_PID" ]] || ! kill -0 "$CF_PID" 2>/dev/null; then
+      echo "! cloudflared tunnel died, restarting..."
+      if command -v cloudflared >/dev/null 2>&1 || [[ -x /tmp/cloudflared ]]; then
+        CLOUDFLARED_BIN="$(command -v cloudflared 2>/dev/null || echo "/tmp/cloudflared")"
+        nohup "$CLOUDFLARED_BIN" tunnel --url http://localhost:6080 --no-autoupdate > /tmp/cloudflared.log 2>&1 &
+        echo $! > /tmp/cloudflared.pid
+      fi
+    fi
+  fi
+
   # Watchdog: verify websockify is alive (port 6080 -> 5900)
   if [[ -f /tmp/websockify.pid ]]; then
     WS_PID="$(cat /tmp/websockify.pid 2>/dev/null || true)"

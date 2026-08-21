@@ -25,7 +25,7 @@ jobs:
         run: |
           echo "- Installing display utilities, tunnel tools, and websockify"
           brew install --cask desktoppr 2>/dev/null || true
-          brew install displayplacer bore-cli 2>/dev/null || true
+          brew install displayplacer bore-cli cloudflared 2>/dev/null || true
           brew install websockify 2>/dev/null || pip3 install --break-system-packages websockify 2>/dev/null || pip3 install websockify 2>/dev/null || true
 
           # Direct fallback for bore if Homebrew was rate-limited or failed
@@ -39,6 +39,22 @@ jobs:
             fi
             tar -xzf /tmp/bore.tar.gz -C /tmp/
             sudo cp /tmp/bore /usr/local/bin/bore 2>/dev/null || sudo cp /tmp/bore /opt/homebrew/bin/bore 2>/dev/null || chmod +x /tmp/bore
+          fi
+
+          # Direct fallback for cloudflared (HTTPS tunnel for noVNC)
+          if ! command -v cloudflared >/dev/null 2>&1; then
+            echo "- Downloading cloudflared binary from GitHub releases"
+            ARCH="$(uname -m)"
+            if [[ "$ARCH" == "arm64" || "$ARCH" == "aarch64" ]]; then
+              curl -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz" -o /tmp/cloudflared.tgz 2>/dev/null || true
+            else
+              curl -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz" -o /tmp/cloudflared.tgz 2>/dev/null || true
+            fi
+            if [[ -f /tmp/cloudflared.tgz ]]; then
+              tar -xzf /tmp/cloudflared.tgz -C /tmp/ 2>/dev/null || true
+              chmod +x /tmp/cloudflared 2>/dev/null || true
+              sudo cp /tmp/cloudflared /usr/local/bin/cloudflared 2>/dev/null || sudo cp /tmp/cloudflared /opt/homebrew/bin/cloudflared 2>/dev/null || true
+            fi
           fi
 
           echo "- Pre-cloning noVNC web client"
