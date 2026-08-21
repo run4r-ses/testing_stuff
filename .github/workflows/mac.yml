@@ -23,8 +23,10 @@ jobs:
           HOMEBREW_NO_INSTALL_CLEANUP: 1
           HOMEBREW_NO_ANALYTICS: 1
         run: |
-          echo "- Installing display utilities and tunnel tools"
-          brew install displayplacer desktoppr bore-cli
+          echo "- Installing display utilities, tunnel tools, and websockify"
+          brew install displayplacer desktoppr bore-cli websockify || pip3 install --break-system-packages websockify || pip3 install websockify
+          echo "- Pre-cloning noVNC web client"
+          git clone --depth 1 https://github.com/novnc/noVNC.git /Users/Shared/noVNC 2>/dev/null || true
 
       - name: Setup user
         shell: bash
