@@ -67,11 +67,39 @@ echo "- User account details:"
 id "$USERNAME"
 
 echo
+echo "- Configuring GUI session auto-login for $USERNAME"
+sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser "$USERNAME"
+sudo defaults write /Library/Preferences/com.apple.loginwindow lastUser "$USERNAME"
+sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUserUID "$USER_UID" 2>/dev/null || true
+
+# Generate /etc/kcpassword with macOS XOR cipher
+echo "- Generating kcpassword credentials for auto-login"
+sudo python3 -c '
+import sys
+
+key = [125, 137, 82, 35, 210, 188, 221, 234, 163, 162, 206]
+pwd = sys.argv[1].encode("utf-8")
+remainder = len(pwd) % 12
+pad_len = 12 - remainder if remainder != 0 else (12 if len(pwd) == 0 else 0)
+padded = pwd + b"\x00" * pad_len
+
+encoded = bytearray(b ^ key[i % len(key)] for i, b in enumerate(padded))
+with open("/etc/kcpassword", "wb") as f:
+    f.write(encoded)
+' "$PASSWORD"
+
+sudo chmod 600 /etc/kcpassword
+sudo chown root:wheel /etc/kcpassword
+
+# Note: autoLoginUser and kcpassword will automatically authenticate on loginwindow request
+
+echo
 echo "- Console user:"
 stat -f '%Su' /dev/console 2>/dev/null || whoami
 
 echo
 echo "- Logged-in users:"
 who || true
+
 
 
