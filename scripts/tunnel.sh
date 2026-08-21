@@ -62,11 +62,23 @@ TUNNEL_URL=""
 
 for _ in {1..30}; do
   TUNNEL_URL="$(
-    grep -Eo 'https?://[A-Za-z0-9.-]+\.serveo\.net' /tmp/tunnel.log 2>/dev/null |
+    sed -E 's/\x1B\[[0-9;]*[a-zA-Z]//g' /tmp/tunnel.log 2>/dev/null |
+    grep -i 'Forwarding HTTP traffic from' |
+    grep -Eo 'https?://[^ ]+' |
     head -n 1 || true
   )"
 
+  if [[ -z "$TUNNEL_URL" ]]; then
+    TUNNEL_URL="$(
+      sed -E 's/\x1B\[[0-9;]*[a-zA-Z]//g' /tmp/tunnel.log 2>/dev/null |
+      grep -Eo 'https?://[A-Za-z0-9.-]+(\.serveo\.net|\.serveousercontent\.com)' |
+      grep -v 'console\.serveo\.net' |
+      head -n 1 || true
+    )"
+  fi
+
   if [[ -n "$TUNNEL_URL" ]]; then
+    TUNNEL_URL="$(echo "$TUNNEL_URL" | tr -d '\r\n' | sed 's:/*$::')"
     break
   fi
 

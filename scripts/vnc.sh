@@ -9,25 +9,30 @@ if [[ -z "$PASSWORD" ]]; then
 fi
 ARD="/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart"
 
-echo "* Configuring ARD"
+echo "* Configuring ARD & VNC access"
 
-# Configure ARD with remote control access for target user
+# Configure ARD with full access and legacy VNC support
 sudo "$ARD" \
   -activate \
   -configure \
   -access -on \
-  -allowAccessFor -specifiedUsers \
-  -users "$USERNAME" \
+  -allowAccessFor -allUsers \
   -privs -all \
   -clientopts -setvncpw -vncpw "$PASSWORD" \
   -clientopts -setvnclegacy -vnclegacy yes \
   -setreqperm -reqperm no \
-  -setmenuextra -menuextra no \
-  -restart -agent -menu
+  -setmenuextra -menuextra no
 
-sleep 3
+# Ensure specific privileges are also explicitly assigned to target user and runner
+sudo "$ARD" \
+  -configure \
+  -access -on \
+  -users "$USERNAME" \
+  -privs -all \
+  -setreqperm -reqperm no \
+  -setmenuextra -menuextra no
 
-echo "- Configuring VNC authentication"
+echo "- Configuring VNC legacy hash"
 
 #
 # macOS legacy VNC authentication uses the DES-style password transformation.
@@ -59,22 +64,23 @@ printf '%s\n' "$VNC_HASH" |
   sudo tee /Library/Preferences/com.apple.VNCSettings.txt >/dev/null
 
 sudo chmod 600 /Library/Preferences/com.apple.VNCSettings.txt
+sudo chown root:wheel /Library/Preferences/com.apple.VNCSettings.txt
 
-sudo "$ARD" \
-  -configure \
-  -clientopts \
-  -setvnclegacy \
-  -vnclegacy yes
-
-sudo defaults write /Library/Preferences/com.apple.RemoteManagement VNCOnlyLocalConnections -bool true 2>/dev/null || true
+# Additional Screen Sharing & Remote Management preferences
+sudo defaults write /Library/Preferences/com.apple.RemoteManagement VNCOnlyLocalConnections -bool false 2>/dev/null || true
+sudo defaults write /Library/Preferences/com.apple.RemoteManagement ARD_AllLocalUsers -bool true 2>/dev/null || true
+sudo defaults write /Library/Preferences/com.apple.VNCSettings VNCOnlyLocalConnections -bool false 2>/dev/null || true
 sudo defaults write com.apple.ScreenSharing encryptRFBDataStream -bool false 2>/dev/null || true
 
+# Restart ARD Agent and Screen Sharing service
 sudo "$ARD" \
   -restart \
   -agent \
-  -console
+  -menu
 
-sleep 10
+sudo launchctl kickstart -k system/com.apple.screensharing 2>/dev/null || true
+
+sleep 5
 
 echo "* Verifying status"
 
@@ -95,5 +101,5 @@ else
 fi
 
 echo
-echo "- Remote Management processes"
+echo "- Remote Management processes:"
 ps aux | grep -Ei '[A]RDAgent|[Ss]creensharingd|[Ss]creensharingAgent|[Vv]NCPrivilegeProxy' || true
