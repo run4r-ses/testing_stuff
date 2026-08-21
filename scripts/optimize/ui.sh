@@ -144,6 +144,16 @@ chmod 644 /tmp/black.png 2>/dev/null || true
 sudo cp /tmp/black.png /Users/Shared/black.png 2>/dev/null || true
 sudo chmod 644 /Users/Shared/black.png 2>/dev/null || true
 
+# Ensure desktoppr binary is available
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+if ! command -v desktoppr >/dev/null 2>&1 && [[ ! -x /opt/homebrew/bin/desktoppr ]] && [[ ! -x /usr/local/bin/desktoppr ]]; then
+  echo "- Downloading and installing desktoppr utility fallback"
+  curl -fsSL "https://github.com/scriptingosx/desktoppr/releases/download/v0.4/desktoppr-0.4.pkg" -o /tmp/desktoppr.pkg 2>/dev/null || true
+  if [[ -f /tmp/desktoppr.pkg ]]; then
+    sudo installer -pkg /tmp/desktoppr.pkg -target / 2>/dev/null || true
+  fi
+fi
+
 # ────────────────────────────────────────────────────────────────────
 # Create on-login hook script and LaunchAgent for GUI sessions
 # This ensures that when target user logs into GUI via ARD/VNC,
@@ -153,14 +163,42 @@ echo "- Installing GUI session on-login optimization hook"
 
 cat << 'EOF' | sudo tee /Users/Shared/apply_rdp_ui.sh >/dev/null
 #!/usr/bin/env bash
-# Set solid black wallpaper
-if command -v desktoppr >/dev/null 2>&1; then
-  desktoppr "/Users/Shared/black.png" 2>/dev/null || true
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
+WALLPAPER="/Users/Shared/black.png"
+
+# Locate desktoppr binary
+DESKTOPPR="$(command -v desktoppr 2>/dev/null || echo "")"
+if [[ -z "$DESKTOPPR" ]]; then
+  for p in /opt/homebrew/bin/desktoppr /usr/local/bin/desktoppr; do
+    if [[ -x "$p" ]]; then
+      DESKTOPPR="$p"
+      break
+    fi
+  done
 fi
-osascript -e 'tell application "System Events" to set picture of every desktop to "/Users/Shared/black.png"' 2>/dev/null || true
 
 # Set Dark Mode
 osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' 2>/dev/null || true
+defaults write NSGlobalDomain AppleInterfaceStyle -string "Dark" 2>/dev/null || true
+
+# Set wallpaper immediately
+if [[ -n "$DESKTOPPR" && -f "$WALLPAPER" ]]; then
+  "$DESKTOPPR" "$WALLPAPER" 2>/dev/null || true
+fi
+osascript -e "tell application \"Finder\" to set desktop picture to POSIX file \"$WALLPAPER\"" 2>/dev/null || true
+osascript -e "tell application \"System Events\" to set picture of every desktop to \"$WALLPAPER\"" 2>/dev/null || true
+
+# Asynchronous retry loop to ensure wallpaper persists after Aqua session completes init
+(
+  for delay in 1 2 4 7; do
+    sleep "$delay"
+    if [[ -n "$DESKTOPPR" && -f "$WALLPAPER" ]]; then
+      "$DESKTOPPR" "$WALLPAPER" 2>/dev/null || true
+    fi
+    osascript -e "tell application \"Finder\" to set desktop picture to POSIX file \"$WALLPAPER\"" 2>/dev/null || true
+  done
+) &
 EOF
 sudo chmod 755 /Users/Shared/apply_rdp_ui.sh
 
@@ -228,10 +266,7 @@ if [[ -n "$TARGET_UID" && "$TARGET_UID" != "0" && "$TARGET_UID" != "$CONSOLE_UID
 fi
 
 # Fallback direct calls
-if command -v desktoppr >/dev/null 2>&1; then
-  desktoppr "/Users/Shared/black.png" 2>/dev/null || true
-fi
-osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' 2>/dev/null || true
+/Users/Shared/apply_rdp_ui.sh 2>/dev/null || true
 
 # Restart UI daemons to apply changes
 echo "- Restarting UI daemons to apply changes"
