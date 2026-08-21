@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TARGET_USER="${RDP_USERNAME:-${VNC_USERNAME:-goldenrecipe}}"
+TARGET_USER="${RDP_USERNAME:-${RUSTDESK_USERNAME:-goldenrecipe}}"
 
 echo "* Skipping onboarding"
 

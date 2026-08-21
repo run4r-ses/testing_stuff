@@ -4,13 +4,13 @@ on:
   workflow_dispatch:
 
 jobs:
-  macos-vnc:
+  macos-rdp:
     runs-on: macos-latest
     timeout-minutes: 370
 
     env:
-      VNC_USERNAME: goldenrecipe
-      VNC_PASSWORD: ${{ secrets.VNC_PASSWORD || secrets.RDP_PASSWORD || secrets.RUSTDESK_PASSWORD }}
+      RDP_USERNAME: goldenrecipe
+      RDP_PASSWORD: ${{ secrets.RDP_PASSWORD || secrets.RUSTDESK_PASSWORD }}
 
     steps:
       - name: Checkout repository
@@ -18,16 +18,13 @@ jobs:
 
       - name: Install dependencies
         shell: bash
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
+          HOMEBREW_NO_ANALYTICS: 1
         run: |
-          echo "- Installing displayplacer and desktoppr"
-          brew install displayplacer desktoppr
-
-          echo "- Installing websockify and numpy"
-          pip3 install --break-system-packages websockify numpy 2>/dev/null || pip3 install websockify numpy 2>/dev/null || true
-
-          echo "- Downloading noVNC and Websockify"
-          git clone --depth 1 https://github.com/novnc/noVNC.git /tmp/novnc
-          git clone --depth 1 https://github.com/novnc/websockify /tmp/novnc/utils/websockify
+          echo "- Installing display utilities and tunnel tools"
+          brew install displayplacer desktoppr bore-cli
 
       - name: Setup user
         shell: bash
@@ -41,14 +38,14 @@ jobs:
         shell: bash
         run: bash scripts/tcc.sh
 
-      - name: Configure and start VNC server
+      - name: Configure Apple Remote Desktop
         shell: bash
-        run: bash scripts/vnc.sh
+        run: bash scripts/rdp/main.sh
 
-      - name: Start VNC tunnel
+      - name: Connection information
         shell: bash
-        run: bash scripts/tunnel.sh
+        run: bash scripts/rdp/info.sh
 
-      - name: Stream tunnel logs
+      - name: Monitor session
         shell: bash
-        run: bash scripts/logs.sh
+        run: bash scripts/rdp/keepalive.sh

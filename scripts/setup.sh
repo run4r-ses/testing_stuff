@@ -1,18 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-USERNAME="${RDP_USERNAME:-${VNC_USERNAME:-goldenrecipe}}"
-PASSWORD="${RDP_PASSWORD:-${VNC_PASSWORD:-}}"
+USERNAME="${RDP_USERNAME:-${RUSTDESK_USERNAME:-goldenrecipe}}"
+PASSWORD="${RDP_PASSWORD:-${RUSTDESK_PASSWORD:-}}"
 if [[ -z "$PASSWORD" ]]; then
-  echo "! VNC_PASSWORD or RDP_PASSWORD environment variable is required"
+  echo "! RDP_PASSWORD or RUSTDESK_PASSWORD environment variable is required"
   exit 1
 fi
-USER_UID="${RDP_UID:-${VNC_UID:-502}}"
+USER_UID="${RDP_UID:-${RUSTDESK_UID:-502}}"
 
 echo "* Creating GUI user $USERNAME"
 
 # Force-set a user's password by stripping existing auth data directly
 # from the user's plist file, bypassing OpenDirectory's access controls.
+# On modern macOS, `dscl . -passwd` and even `dscl . -delete AuthenticationAuthority`
+# route through opendirectoryd which can refuse changes for protected users.
+# By editing the plist file on disk and restarting opendirectoryd, we bypass
+# all OD-level access checks.
 force_set_password() {
   local user="$1"
   local pass="$2"
@@ -67,39 +71,10 @@ echo "- User account details:"
 id "$USERNAME"
 
 echo
-echo "- Configuring GUI session auto-login for $USERNAME"
-sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser "$USERNAME"
-sudo defaults write /Library/Preferences/com.apple.loginwindow lastUser "$USERNAME"
-sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUserUID "$USER_UID" 2>/dev/null || true
-
-# Generate /etc/kcpassword with macOS XOR cipher
-echo "- Generating kcpassword credentials for auto-login"
-sudo python3 -c '
-import sys
-
-key = [125, 137, 82, 35, 210, 188, 221, 234, 163, 162, 206]
-pwd = sys.argv[1].encode("utf-8")
-remainder = len(pwd) % 12
-pad_len = 12 - remainder if remainder != 0 else (12 if len(pwd) == 0 else 0)
-padded = pwd + b"\x00" * pad_len
-
-encoded = bytearray(b ^ key[i % len(key)] for i, b in enumerate(padded))
-with open("/etc/kcpassword", "wb") as f:
-    f.write(encoded)
-' "$PASSWORD"
-
-sudo chmod 600 /etc/kcpassword
-sudo chown root:wheel /etc/kcpassword
-
-# Note: autoLoginUser and kcpassword will automatically authenticate on loginwindow request
-
-echo
 echo "- Console user:"
 stat -f '%Su' /dev/console 2>/dev/null || whoami
 
 echo
 echo "- Logged-in users:"
 who || true
-
-
 

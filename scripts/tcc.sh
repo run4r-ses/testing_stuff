@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-USERNAME="${RDP_USERNAME:-${VNC_USERNAME:-goldenrecipe}}"
+USERNAME="${RDP_USERNAME:-${RUSTDESK_USERNAME:-goldenrecipe}}"
 
 echo "* Bypassing TCC"
 
@@ -47,12 +47,16 @@ patch_tcc() {
   )
 
   local CLIENTS_BUNDLE=(
+    "com.carriez.rustdesk"
+    "com.carriez.RustDesk"
     "com.apple.screensharing.agent"
     "com.apple.screensharingd"
     "com.apple.RemoteDesktopAgent"
   )
 
   local CLIENTS_PATH=(
+    "/Applications/RustDesk.app/Contents/MacOS/RustDesk"
+    "/Applications/RustDesk.app/Contents/MacOS/rustdesk"
     "/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/MacOS/ARDAgent"
     "/System/Library/CoreServices/RemoteManagement/screensharingd.bundle/Contents/MacOS/screensharingd"
   )
@@ -149,3 +153,30 @@ echo
 echo "* Restarting tccd daemon"
 sudo killall -9 tccd 2>/dev/null || true
 sleep 3
+
+echo
+echo "- Suppressing Screen Capture alerts"
+for U in "$USERNAME" "runner" "root"; do
+  if [[ "$U" == "root" ]]; then
+    PLIST_DIR="/var/root/Library/Group Containers/group.com.apple.replayd"
+  else
+    PLIST_DIR="/Users/$U/Library/Group Containers/group.com.apple.replayd"
+  fi
+  sudo mkdir -p "$PLIST_DIR"
+  PLIST="$PLIST_DIR/ScreenCaptureApprovals.plist"
+
+  for APP_KEY in \
+    "/Applications/RustDesk.app/Contents/MacOS/RustDesk" \
+    "/Applications/RustDesk.app/Contents/MacOS/rustdesk" \
+    "/Applications/RustDesk.app" \
+    "com.carriez.rustdesk" \
+    "com.carriez.RustDesk"; do
+    sudo defaults write "$PLIST" "$APP_KEY" -date "3024-01-01 00:00:00 +0000" 2>/dev/null || true
+  done
+
+  if [[ "$U" != "root" ]]; then
+    sudo chown -R "$U:staff" "$PLIST_DIR" 2>/dev/null || true
+  fi
+done
+
+sudo killall -9 replayd 2>/dev/null || true

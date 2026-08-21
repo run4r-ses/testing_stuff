@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TARGET_USER="${RDP_USERNAME:-${VNC_USERNAME:-goldenrecipe}}"
+TARGET_USER="${RDP_USERNAME:-${RUSTDESK_USERNAME:-goldenrecipe}}"
 TARGET_HOME="/Users/$TARGET_USER"
 
-echo "* Disabling visual effects and setting Dark Mode + solid black wallpaper"
+echo "* Disabling visual effects"
 
 apply_visual_optimizations() {
   local PREFIX="${1:-}"
@@ -65,17 +65,22 @@ echo "- Applying global system settings"
 sudo defaults write /Library/Preferences/com.apple.universalaccess reduceTransparency -bool true
 sudo defaults write /Library/Preferences/com.apple.universalaccess reduceMotion -bool true
 sudo defaults write /Library/Preferences/.GlobalPreferences AppleInterfaceStyle -string "Dark" 2>/dev/null || true
+sudo defaults write /Library/Preferences/.GlobalPreferences AppleInterfaceStyleSwitchesAutomatically -bool false 2>/dev/null || true
+
+# Restart preference daemons so global defaults take effect immediately
+killall cfprefsd 2>/dev/null || true
+sudo killall cfprefsd 2>/dev/null || true
 
 # ────────────────────────────────────────────────────────────────────
-# Generate a proper solid black wallpaper image (1920x1080)
-# A 1x1 image gets tiled/ignored on many macOS versions.
+# Generate a proper solid black wallpaper image (1280x720)
+# Matches target screen resolution to prevent scaling/tiling overhead.
 # ────────────────────────────────────────────────────────────────────
-echo "- Creating solid black wallpaper (1920x1080)"
+echo "- Creating solid black wallpaper (1280x720)"
 
 python3 -c '
 import struct, zlib
 
-width, height = 1920, 1080
+width, height = 1280, 720
 
 def create_png(w, h):
     def chunk(ctype, data):
@@ -104,21 +109,21 @@ sudo cp /tmp/black.png /Users/Shared/black.png 2>/dev/null || true
 sudo chmod 644 /Users/Shared/black.png 2>/dev/null || true
 
 # ────────────────────────────────────────────────────────────────────
-# Apply wallpaper for target user
+# Apply wallpaper and appearance for target user
 # ────────────────────────────────────────────────────────────────────
-echo "- Setting wallpaper for $TARGET_USER"
+echo "- Setting appearance"
 
 TARGET_UID="$(id -u "$TARGET_USER" 2>/dev/null || echo "")"
+
+if [[ -n "$TARGET_UID" && "$TARGET_UID" != "0" ]]; then
+  launchctl asuser "$TARGET_UID" sudo -u "$TARGET_USER" osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' 2>/dev/null || true
+fi
 
 if command -v desktoppr >/dev/null 2>&1; then
   sudo -u "$TARGET_USER" desktoppr "/Users/Shared/black.png" 2>/dev/null || true
   if [[ -n "$TARGET_UID" && "$TARGET_UID" != "0" ]]; then
     launchctl asuser "$TARGET_UID" sudo -u "$TARGET_USER" desktoppr "/Users/Shared/black.png" 2>/dev/null || true
   fi
-fi
-
-if [[ -n "$TARGET_UID" && "$TARGET_UID" != "0" ]]; then
-  launchctl asuser "$TARGET_UID" sudo -u "$TARGET_USER" osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' 2>/dev/null || true
 fi
 
 # Force wallpaper daemon, Dock, Finder, and SystemUIServer reload
@@ -131,8 +136,9 @@ killall SystemUIServer 2>/dev/null || true
 # Give daemons time to respawn and apply
 sleep 2
 
-# Re-apply desktoppr after daemon restart
+# Re-apply desktoppr for target user after daemon restart
 if command -v desktoppr >/dev/null 2>&1; then
-  echo "- Re-applying wallpaper for $TARGET_USER"
+  echo "- Re-applying wallpaper for user $TARGET_USER"
   sudo -u "$TARGET_USER" desktoppr "/Users/Shared/black.png" 2>/dev/null || true
 fi
+
