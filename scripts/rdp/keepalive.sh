@@ -11,14 +11,16 @@ log_msg "* Running Apple Remote Desktop & tunnel keepalive monitor"
 caffeinate -dimsu &
 CAFFEINATE_PID=$!
 
-# Stream Serveo SSH logs in real-time to stdout
-touch /tmp/serveo.log
+# Stream Serveo SSH logs and loopback keeper logs in real-time to stdout
+touch /tmp/serveo.log /tmp/loopback_keeper.log
 tail -n +1 -F /tmp/serveo.log 2>/dev/null &
-TAIL_PID=$!
+TAIL_SERVEO_PID=$!
+tail -n +1 -F /tmp/loopback_keeper.log 2>/dev/null &
+TAIL_LOOPBACK_PID=$!
 
 cleanup() {
   log_msg "* Stopping keepalive monitor"
-  kill "$CAFFEINATE_PID" "$TAIL_PID" 2>/dev/null || true
+  kill "$CAFFEINATE_PID" "$TAIL_SERVEO_PID" "$TAIL_LOOPBACK_PID" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 

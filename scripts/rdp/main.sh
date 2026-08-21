@@ -17,76 +17,29 @@ sudo defaults write /var/db/launchd.db/com.apple.launchd/overrides.plist com.app
 sudo launchctl enable system/com.apple.screensharing 2>/dev/null || true
 sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist 2>/dev/null || true
 
-# Configure kickstart for ARD / Screen Sharing access for target user with legacy VNC password
+# Configure kickstart for Apple Remote Desktop access with native username & password authentication
 echo "- Configuring kickstart permissions for $USERNAME"
 sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
   -activate \
   -configure \
-  -allowAccessFor -specifiedUsers \
+  -allowAccessFor -allUsers \
   -access -on \
   -privs -all \
-  -users "$USERNAME" \
-  -clientopts -setvncpw -vncpw "$PASSWORD" \
-  -clientopts -setvnclegacy -vnclegacy yes \
+  -clientopts -setvnclegacy -vnclegacy no \
   -restart -agent -menu 2>/dev/null || true
 
 # Ensure screensharing daemon is active
 sudo launchctl kickstart -k system/com.apple.screensharing 2>/dev/null || true
 
 # ────────────────────────────────────────────────────────────────────
-# Setup noVNC with Explicit Legacy VncAuth (Password Only)
+# Setup noVNC with Native Apple Remote Desktop Authentication
 # ────────────────────────────────────────────────────────────────────
-echo "* Setting up noVNC with legacy VncAuth protocol"
+echo "* Setting up noVNC web client"
 
 NOVNC_DIR="/Users/Shared/noVNC"
 if [[ ! -d "$NOVNC_DIR" ]]; then
   echo "- Downloading noVNC client"
   git clone --depth 1 https://github.com/novnc/noVNC.git "$NOVNC_DIR" 2>/dev/null || true
-fi
-
-if [[ -f "$NOVNC_DIR/core/rfb.js" ]]; then
-  echo "- Enforcing legacy VncAuth security in noVNC rfb.js"
-  python3 -c "
-import re
-
-rfb_path = '$NOVNC_DIR/core/rfb.js'
-with open(rfb_path, 'r', encoding='utf-8') as f:
-    code = f.read()
-
-# 1. Remove securityTypeARD from clientTypes to completely prevent ARD Diffie-Hellman / username+password negotiation
-code = re.sub(
-    r'_isSupportedSecurityType\(type\)\s*\{[\s\S]*?return clientTypes\.includes\(type\);[\s\S]*?\}',
-    '''_isSupportedSecurityType(type) {
-        const clientTypes = [
-            securityTypeVNCAuth,
-            securityTypeNone,
-            securityTypeTight,
-        ];
-        return clientTypes.includes(type);
-    }''',
-    code
-)
-
-# 2. In _negotiateSecurity, explicitly prioritize and force securityTypeVNCAuth (Type 2)
-code = re.sub(
-    r'for\s*\(\s*let\s+type\s+of\s+types\s*\)\s*\{\s*if\s*\(\s*this\._isSupportedSecurityType\(type\)\s*\)\s*\{\s*this\._rfbAuthScheme\s*=\s*type;\s*break;\s*\}\s*\}',
-    '''if (types.includes(securityTypeVNCAuth)) {
-                this._rfbAuthScheme = securityTypeVNCAuth;
-            } else {
-                for (let type of types) {
-                    if (this._isSupportedSecurityType(type)) {
-                        this._rfbAuthScheme = type;
-                        break;
-                    }
-                }
-            }''',
-    code
-)
-
-with open(rfb_path, 'w', encoding='utf-8') as f:
-    f.write(code)
-print('- Successfully patched noVNC rfb.js for legacy VncAuth')
-" 2>/dev/null || true
 fi
 
 # Ensure websockify is available and start websockify proxy (port 6080 -> 5900)
