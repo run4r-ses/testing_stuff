@@ -4,13 +4,13 @@ on:
   workflow_dispatch:
 
 jobs:
-  macos-rustdesk:
+  macos-rdp:
     runs-on: macos-latest
     timeout-minutes: 370
 
     env:
-      RUSTDESK_USERNAME: runneradmin
-      RUSTDESK_PASSWORD: ${{ secrets.RUSTDESK_PASSWORD }}
+      RDP_USERNAME: goldenrecipe
+      RDP_PASSWORD: ${{ secrets.RDP_PASSWORD || secrets.RUSTDESK_PASSWORD }}
 
     steps:
       - name: Checkout repository
@@ -26,11 +26,6 @@ jobs:
           echo "- Installing display utilities and tunnel tools"
           brew install displayplacer desktoppr bore-cli
 
-          echo "- Installing RustDesk"
-          brew install --cask rustdesk
-          sudo xattr -cr /Applications/RustDesk.app 2>/dev/null || true
-          sudo xattr -rd com.apple.quarantine /Applications/RustDesk.app 2>/dev/null || true
-
       - name: Setup user
         shell: bash
         run: bash scripts/setup.sh
@@ -43,14 +38,14 @@ jobs:
         shell: bash
         run: bash scripts/tcc.sh
 
-      - name: Configure RustDesk
+      - name: Configure Apple Remote Desktop
         shell: bash
-        run: bash scripts/rustdesk/main.sh
+        run: bash scripts/rdp/main.sh
 
       - name: Connection information
         shell: bash
-        run: bash scripts/rustdesk/info.sh
+        run: bash scripts/rdp/info.sh
 
       - name: Monitor session
         shell: bash
-        run: bash scripts/rustdesk/keepalive.sh
+        run: bash scripts/rdp/keepalive.sh

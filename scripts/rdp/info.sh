@@ -1,26 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-RUSTDESK_BIN="/Applications/RustDesk.app/Contents/MacOS/RustDesk"
-if [[ ! -x "$RUSTDESK_BIN" && -x "/Applications/RustDesk.app/Contents/MacOS/rustdesk" ]]; then
-  RUSTDESK_BIN="/Applications/RustDesk.app/Contents/MacOS/rustdesk"
-fi
-
-# 1. Resolve RustDesk ID
-RUSTDESK_ID="Unavailable"
-if [[ -f /tmp/rustdesk_id.txt ]]; then
-  RUSTDESK_ID="$(cat /tmp/rustdesk_id.txt | tr -d '[:space:]')"
-fi
-if [[ -z "$RUSTDESK_ID" || "$RUSTDESK_ID" == "Unavailable" ]] && [[ -x "$RUSTDESK_BIN" ]]; then
-  RUSTDESK_ID="$("$RUSTDESK_BIN" --get-id 2>/dev/null || echo 'Unavailable')"
-  RUSTDESK_ID="$(echo "$RUSTDESK_ID" | tr -d '[:space:]')"
-fi
-
-# 2. Resolve Console User & OS Version
-CONSOLE_USER="$(cat /tmp/rustdesk_user.txt 2>/dev/null || stat -f '%Su' /dev/console 2>/dev/null || echo "runner")"
+USERNAME="${RDP_USERNAME:-${RUSTDESK_USERNAME:-goldenrecipe}}"
 OS_VERSION="$(sw_vers -productVersion 2>/dev/null || echo "macOS")"
 
-# 3. Resolve direct tunnel host/port (bore.pub)
+# Resolve direct tunnel host/port (bore.pub)
 TUNNEL_ENDPOINT=""
 for _ in {1..30}; do
   if [[ -f /tmp/tunnel.log ]]; then
@@ -73,18 +57,25 @@ if [[ -z "$TUNNEL_ENDPOINT" && -f /tmp/tunnel.log ]]; then
   echo "------------------"
 fi
 
-# 4. Display connection details in project logging style
 echo
-echo "* macOS web desktop is ready"
-echo "* RustDesk ID:   $RUSTDESK_ID"
-echo "* Console user:  $CONSOLE_USER"
-echo "* OS version:    $OS_VERSION"
+echo "* ==================================================="
+echo "* Apple Remote Desktop / Screen Sharing is ready"
+echo "* ==================================================="
+echo "* OS Version:      $OS_VERSION"
+echo "* RDP/VNC User:    $USERNAME"
 if [[ -n "$TUNNEL_ENDPOINT" ]]; then
-  echo "* Direct host:   $TUNNEL_ENDPOINT"
+  echo "* Direct host:     $TUNNEL_ENDPOINT"
+  echo "*"
+  echo "* Connection URLs:"
+  echo "*   vnc://$TUNNEL_ENDPOINT"
+  echo "*"
+  echo "* How to connect:"
+  echo "*   1. Open Screen Sharing / VNC client"
+  echo "*   2. Connect to: $TUNNEL_ENDPOINT"
+  echo "*   3. Authenticate with user: $USERNAME and your configured secret password"
+  echo "*   4. macOS will start a dedicated desktop session for $USERNAME"
+else
+  echo "! Tunnel endpoint could not be established"
 fi
-echo "*"
-echo "* For web, you can connect via https://rustdesk.com/web/"
-if [[ -n "$TUNNEL_ENDPOINT" ]]; then
-  echo "* For direct connection, enter '$TUNNEL_ENDPOINT' into the RustDesk Client ID box"
-fi
+echo "* ==================================================="
 echo

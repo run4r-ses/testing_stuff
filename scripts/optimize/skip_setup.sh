@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TARGET_USER="${RUSTDESK_USERNAME:-runneradmin}"
+TARGET_USER="${RDP_USERNAME:-${RUSTDESK_USERNAME:-goldenrecipe}}"
 
 echo "* Skipping onboarding"
 
@@ -88,8 +88,5 @@ apply_user_setup_bypass() {
   sudo chown -R "$USER_NAME":staff "$USER_HOME/Library" 2>/dev/null || true
 }
 
-# Apply for current runner user and target GUI user
-apply_user_setup_bypass "runner"
-if [[ "$TARGET_USER" != "runner" ]]; then
-  apply_user_setup_bypass "$TARGET_USER"
-fi
+# Apply for target GUI user
+apply_user_setup_bypass "$TARGET_USER"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TARGET_USER="${RUSTDESK_USERNAME:-runneradmin}"
+TARGET_USER="${RDP_USERNAME:-${RUSTDESK_USERNAME:-goldenrecipe}}"
 TARGET_HOME="/Users/$TARGET_USER"
 
 echo "* Disabling visual effects"
@@ -54,12 +54,9 @@ apply_visual_optimizations() {
   ${PREFIX} defaults write NSGlobalDomain AppleFontSmoothing -int 1
 }
 
-# Apply for current session user
-apply_visual_optimizations ""
-
 # Apply for target user if home exists
 if [[ -d "$TARGET_HOME" ]]; then
-  echo "- Applying for user $TARGET_USER"
+  echo "- Applying visual optimizations for user $TARGET_USER"
   sudo -u "$TARGET_USER" bash -c "$(declare -f apply_visual_optimizations); apply_visual_optimizations" 2>/dev/null || true
 fi
 
@@ -112,34 +109,19 @@ sudo cp /tmp/black.png /Users/Shared/black.png 2>/dev/null || true
 sudo chmod 644 /Users/Shared/black.png 2>/dev/null || true
 
 # ────────────────────────────────────────────────────────────────────
-# Apply wallpaper and live Dark Mode appearance
+# Apply wallpaper and appearance for target user
 # ────────────────────────────────────────────────────────────────────
 echo "- Setting appearance"
 
-CONSOLE_USER="$(stat -f '%Su' /dev/console 2>/dev/null || echo "runner")"
-CONSOLE_UID="$(id -u "$CONSOLE_USER" 2>/dev/null || echo "501")"
-TARGET_UID="$(id -u "$TARGET_USER" 2>/dev/null || echo "502")"
+TARGET_UID="$(id -u "$TARGET_USER" 2>/dev/null || echo "")"
 
-# Activate live Dark Mode via System Events in user GUI sessions
-osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' 2>/dev/null || true
-if [[ -n "$CONSOLE_UID" && "$CONSOLE_UID" != "0" ]]; then
-  launchctl asuser "$CONSOLE_UID" sudo -u "$CONSOLE_USER" osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' 2>/dev/null || true
-fi
-if [[ -n "$TARGET_UID" && "$TARGET_UID" != "0" && "$TARGET_UID" != "$CONSOLE_UID" ]]; then
+if [[ -n "$TARGET_UID" && "$TARGET_UID" != "0" ]]; then
   launchctl asuser "$TARGET_UID" sudo -u "$TARGET_USER" osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' 2>/dev/null || true
 fi
 
 if command -v desktoppr >/dev/null 2>&1; then
-  desktoppr "/Users/Shared/black.png" 2>/dev/null || true
-  sudo -u "$CONSOLE_USER" desktoppr "/Users/Shared/black.png" 2>/dev/null || true
-  if [[ "$TARGET_USER" != "$CONSOLE_USER" ]]; then
-    sudo -u "$TARGET_USER" desktoppr "/Users/Shared/black.png" 2>/dev/null || true
-  fi
-  # Also set in launchctl GUI context
-  if [[ -n "$CONSOLE_UID" && "$CONSOLE_UID" != "0" ]]; then
-    launchctl asuser "$CONSOLE_UID" sudo -u "$CONSOLE_USER" desktoppr "/Users/Shared/black.png" 2>/dev/null || true
-  fi
-  if [[ -n "$TARGET_UID" && "$TARGET_UID" != "0" && "$TARGET_UID" != "$CONSOLE_UID" ]]; then
+  sudo -u "$TARGET_USER" desktoppr "/Users/Shared/black.png" 2>/dev/null || true
+  if [[ -n "$TARGET_UID" && "$TARGET_UID" != "0" ]]; then
     launchctl asuser "$TARGET_UID" sudo -u "$TARGET_USER" desktoppr "/Users/Shared/black.png" 2>/dev/null || true
   fi
 fi
@@ -154,13 +136,9 @@ killall SystemUIServer 2>/dev/null || true
 # Give daemons time to respawn and apply
 sleep 2
 
-# Re-apply desktoppr and dark mode after daemon restart
+# Re-apply desktoppr for target user after daemon restart
 if command -v desktoppr >/dev/null 2>&1; then
-  echo "- Re-applying wallpaper after daemon restart"
-  desktoppr "/Users/Shared/black.png" 2>/dev/null || true
-  sudo -u "$CONSOLE_USER" desktoppr "/Users/Shared/black.png" 2>/dev/null || true
-  if [[ "$TARGET_USER" != "$CONSOLE_USER" ]]; then
-    sudo -u "$TARGET_USER" desktoppr "/Users/Shared/black.png" 2>/dev/null || true
-  fi
+  echo "- Re-applying wallpaper for user $TARGET_USER"
+  sudo -u "$TARGET_USER" desktoppr "/Users/Shared/black.png" 2>/dev/null || true
 fi
-osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' 2>/dev/null || true
+
