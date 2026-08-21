@@ -26,7 +26,8 @@ jobs:
           echo "- Installing display utilities, tunnel tools, and websockify"
           brew install --cask desktoppr 2>/dev/null || true
           brew install displayplacer bore-cli 2>/dev/null || true
-          brew install websockify 2>/dev/null || pip3 install --break-system-packages websockify 2>/dev/null || pip3 install websockify 2>/dev/null || true
+          brew install websockify 2>/dev/null || pip3 install --break-system-packages websockify asyncvnc 2>/dev/null || pip3 install websockify asyncvnc 2>/dev/null || true
+          pip3 install --break-system-packages asyncvnc 2>/dev/null || pip3 install asyncvnc 2>/dev/null || true
 
           # Direct fallback for desktoppr if Homebrew cask failed
           if ! command -v desktoppr >/dev/null 2>&1 && [[ ! -x /opt/homebrew/bin/desktoppr ]] && [[ ! -x /usr/local/bin/desktoppr ]]; then
@@ -65,13 +66,13 @@ jobs:
         shell: bash
         run: bash scripts/optimize/main.sh
 
-      - name: Configure RustDesk
-        shell: bash
-        run: bash scripts/rustdesk/main.sh
-
       - name: Configure Apple Remote Desktop
         shell: bash
         run: bash scripts/rdp/main.sh
+
+      - name: Configure RustDesk
+        shell: bash
+        run: bash scripts/rustdesk/main.sh
 
       - name: Connection information
         shell: bash

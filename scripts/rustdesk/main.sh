@@ -64,4 +64,10 @@ sudo bash "$SCRIPT_DIR/install_service.sh" -u "$USERNAME" 2>/dev/null || true
 echo "- Setting unattended access password for RustDesk..."
 sudo /Applications/RustDesk.app/Contents/MacOS/RustDesk --password "$PASSWORD" 2>/dev/null || true
 
+# 6. Launch RustDesk in user GUI session
+TARGET_UID="$(id -u "$USERNAME" 2>/dev/null || echo "502")"
+if [[ -n "$TARGET_UID" ]]; then
+  launchctl asuser "$TARGET_UID" sudo -u "$USERNAME" open -a /Applications/RustDesk.app 2>/dev/null || true
+fi
+
 echo "* RustDesk service configured successfully"

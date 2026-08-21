@@ -90,5 +90,16 @@ while true; do
     fi
   fi
 
+  # Watchdog: verify local VNC loopback keeper is alive
+  if [[ -f /tmp/loopback_keeper.pid ]]; then
+    LK_PID="$(cat /tmp/loopback_keeper.pid 2>/dev/null || true)"
+    if [[ -z "$LK_PID" ]] || ! kill -0 "$LK_PID" 2>/dev/null; then
+      log_msg "! Local VNC loopback keeper died, restarting..."
+      SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+      nohup python3 "$SCRIPT_DIR/loopback_keeper.py" >> /tmp/loopback_keeper.log 2>&1 &
+      echo $! > /tmp/loopback_keeper.pid
+    fi
+  fi
+
   sleep 15
 done

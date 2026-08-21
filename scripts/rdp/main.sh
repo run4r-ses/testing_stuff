@@ -142,4 +142,10 @@ else
   echo "! bore binary could not be installed"
 fi
 
+# Start local loopback keeper to keep target user's virtual display alive 24/7
+echo "- Starting local VNC loopback keeper for persistent display session"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+nohup python3 "$SCRIPT_DIR/loopback_keeper.py" > /tmp/loopback_keeper.log 2>&1 &
+echo $! > /tmp/loopback_keeper.pid
+
 echo "* Apple Remote Desktop & noVNC configured successfully"
