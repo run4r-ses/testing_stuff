@@ -79,6 +79,17 @@ while true; do
     sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist 2>/dev/null || true
   fi
 
-  echo "- [$(date '+%Y-%m-%d %H:%M:%S')] Keepalive monitor active (running for ${ELAPSED_MIN}m)"
+  # Extract active endpoints for logging
+  SERVEO_URL="$(grep -Eo 'https?://[a-zA-Z0-9.-]+\.serveousercontent\.com' /tmp/serveo.log 2>/dev/null | head -n 1 || true)"
+  if [[ -z "$SERVEO_URL" ]]; then
+    SERVEO_URL="$(grep -Eo 'https?://[a-zA-Z0-9.-]+\.serveo\.net' /tmp/serveo.log 2>/dev/null | grep -v 'console\.serveo\.net' | head -n 1 || true)"
+  fi
+  if [[ -n "$SERVEO_URL" ]]; then
+    SERVEO_URL="${SERVEO_URL/http:/https:}"
+    echo "- [$(date '+%Y-%m-%d %H:%M:%S')] Keepalive active (${ELAPSED_MIN}m) | noVNC: $SERVEO_URL/vnc.html?autoconnect=true&resize=scale"
+  else
+    echo "- [$(date '+%Y-%m-%d %H:%M:%S')] Keepalive active (${ELAPSED_MIN}m) | noVNC tunnel starting..."
+  fi
+
   sleep 15
 done

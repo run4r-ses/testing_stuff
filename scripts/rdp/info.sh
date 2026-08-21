@@ -39,19 +39,23 @@ resolve_bore_endpoint() {
   echo ""
 }
 
-# Resolve Serveo HTTPS tunnel URL (https://*.serveo.net)
+# Resolve Serveo HTTPS tunnel URL (https://*.serveousercontent.com or https://*.serveo.net)
 resolve_serveo_endpoint() {
   local ENDPOINT=""
   for _ in {1..35}; do
     if [[ -f /tmp/serveo.log ]]; then
       local CLEAN_LOG
       CLEAN_LOG="$(sed -E 's/\x1B\[[0-9;]*[a-zA-Z]//g' /tmp/serveo.log 2>/dev/null || true)"
-      ENDPOINT="$(echo "$CLEAN_LOG" | grep -Eo 'https://[a-zA-Z0-9.-]+\.serveo\.net' | head -n 1 || true)"
+
+      # 1. Match *.serveousercontent.com (standard Serveo forward URL)
+      ENDPOINT="$(echo "$CLEAN_LOG" | grep -Eo 'https?://[a-zA-Z0-9.-]+\.serveousercontent\.com' | head -n 1 || true)"
+
+      # 2. Fallback to *.serveo.net (excluding console.serveo.net)
       if [[ -z "$ENDPOINT" ]]; then
-        ENDPOINT="$(echo "$CLEAN_LOG" | grep -Eo 'http://[a-zA-Z0-9.-]+\.serveo\.net' | head -n 1 || true)"
+        ENDPOINT="$(echo "$CLEAN_LOG" | grep -Eo 'https?://[a-zA-Z0-9.-]+\.serveo\.net' | grep -v 'console\.serveo\.net' | head -n 1 || true)"
       fi
+
       if [[ -n "$ENDPOINT" ]]; then
-        # Ensure HTTPS scheme
         ENDPOINT="${ENDPOINT/http:/https:}"
         echo "$ENDPOINT"
         return 0
