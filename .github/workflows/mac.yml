@@ -65,13 +65,19 @@ jobs:
         shell: bash
         run: bash scripts/optimize/main.sh
 
+      - name: Configure RustDesk
+        shell: bash
+        run: bash scripts/rustdesk/main.sh
+
       - name: Configure Apple Remote Desktop
         shell: bash
         run: bash scripts/rdp/main.sh
 
       - name: Connection information
         shell: bash
-        run: bash scripts/rdp/info.sh
+        run: |
+          bash scripts/rdp/info.sh
+          bash scripts/rustdesk/info.sh
 
       - name: Monitor session
         shell: bash
