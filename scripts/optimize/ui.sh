@@ -6,64 +6,100 @@ TARGET_HOME="/Users/$TARGET_USER"
 
 echo "* Disabling visual effects"
 
-apply_visual_optimizations() {
-  local PREFIX="${1:-}"
+# Helper function to write visual preferences to a target user directory
+write_user_visual_preferences() {
+  local USER_NAME="$1"
+  local USER_HOME="/Users/$USER_NAME"
 
-  # Enable Dark Mode
-  echo "- Enabling Dark Mode"
-  ${PREFIX} defaults write NSGlobalDomain AppleInterfaceStyle -string "Dark"
-  ${PREFIX} defaults write NSGlobalDomain AppleInterfaceStyleSwitchesAutomatically -bool false
+  if [[ ! -d "$USER_HOME" ]]; then
+    return 0
+  fi
 
-  # Disable Transparency / Liquid Glass (massive VNC bandwidth reduction)
-  echo "- Disabling Liquid Glass"
-  ${PREFIX} defaults write com.apple.universalaccess reduceTransparency -bool true
-  ${PREFIX} defaults write com.apple.Accessibility reduceTransparency -bool true
-  ${PREFIX} defaults write -g AppleEnableMenuBarTransparency -bool false
+  echo "- Applying visual preferences for user $USER_NAME"
+  sudo mkdir -p "$USER_HOME/Library/Preferences" "$USER_HOME/Library/LaunchAgents"
 
-  # Enable Reduce Motion & disable CoreAnimation delays
-  echo "- Disabling motion"
-  ${PREFIX} defaults write com.apple.universalaccess reduceMotion -bool true
-  ${PREFIX} defaults write NSGlobalDomain NSAutomaticWindowAnimationsEnabled -bool false
-  ${PREFIX} defaults write NSGlobalDomain NSWindowResizeTime -float 0.001
-  ${PREFIX} defaults write NSGlobalDomain QLPanelAnimationDuration -float 0
+  local GLOBAL_PLIST="$USER_HOME/Library/Preferences/.GlobalPreferences.plist"
+  local ACCESS_PLIST="$USER_HOME/Library/Preferences/com.apple.universalaccess.plist"
+  local ACCESSIBILITY_PLIST="$USER_HOME/Library/Preferences/com.apple.Accessibility.plist"
+  local FINDER_PLIST="$USER_HOME/Library/Preferences/com.apple.finder.plist"
+  local DOCK_PLIST="$USER_HOME/Library/Preferences/com.apple.dock.plist"
+  local SCREEN_PLIST="$USER_HOME/Library/Preferences/com.apple.screencapture.plist"
+  local WM_PLIST="$USER_HOME/Library/Preferences/com.apple.WindowManager.plist"
 
-  # Disable Finder and QuickLook animations
-  echo "- Disabling Finder and QuickLook animations"
-  ${PREFIX} defaults write com.apple.finder DisableAllAnimations -bool true
-  ${PREFIX} defaults write com.apple.finder FXEnableExtensionChangeWarning -bool false
-  ${PREFIX} defaults write com.apple.finder CreateDesktop -bool true
+  # 1. Dark Mode & Interface
+  sudo defaults write "$GLOBAL_PLIST" AppleInterfaceStyle -string "Dark"
+  sudo defaults write "$GLOBAL_PLIST" AppleInterfaceStyleSwitchesAutomatically -bool false
+  sudo defaults write "$GLOBAL_PLIST" AppleEnableMenuBarTransparency -bool false
+  sudo defaults write "$GLOBAL_PLIST" AppleFontSmoothing -int 1
 
-  # Minimize Dock animations & delays
-  echo "- Minimizing Dock animations & delays"
-  ${PREFIX} defaults write com.apple.dock launchanim -bool false
-  ${PREFIX} defaults write com.apple.dock expose-animation-duration -float 0.0
-  ${PREFIX} defaults write com.apple.dock autohide-time-modifier -float 0.0
-  ${PREFIX} defaults write com.apple.dock autohide-delay -float 0.0
-  ${PREFIX} defaults write com.apple.dock springboard-show-duration -float 0.0
-  ${PREFIX} defaults write com.apple.dock springboard-hide-duration -float 0.0
+  # 2. Disable Transparency & Motion
+  sudo defaults write "$ACCESS_PLIST" reduceTransparency -bool true
+  sudo defaults write "$ACCESS_PLIST" reduceMotion -bool true
+  sudo defaults write "$ACCESSIBILITY_PLIST" reduceTransparency -bool true
+  sudo defaults write "$ACCESSIBILITY_PLIST" reduceMotion -bool true
 
-  # Disable Window Shadows & Stage Manager / Widget overhead
-  echo "- Disabling shadows, stage manager, widget overhead"
-  ${PREFIX} defaults write com.apple.screencapture disable-shadow -bool true
-  ${PREFIX} defaults write com.apple.WindowManager StandardHideWidgets -bool true
-  ${PREFIX} defaults write com.apple.WindowManager EnableStandardClickToShowDesktop -bool false
-  ${PREFIX} defaults write com.apple.WindowManager HideDesktop -bool true
+  # 3. Window & Panel animations
+  sudo defaults write "$GLOBAL_PLIST" NSAutomaticWindowAnimationsEnabled -bool false
+  sudo defaults write "$GLOBAL_PLIST" NSWindowResizeTime -float 0.001
+  sudo defaults write "$GLOBAL_PLIST" QLPanelAnimationDuration -float 0
 
-  # Font smoothing for remote displays
-  echo "- Setting font smoothing"
-  ${PREFIX} defaults write NSGlobalDomain AppleFontSmoothing -int 1
+  # 4. Finder optimizations
+  sudo defaults write "$FINDER_PLIST" DisableAllAnimations -bool true
+  sudo defaults write "$FINDER_PLIST" FXEnableExtensionChangeWarning -bool false
+  sudo defaults write "$FINDER_PLIST" CreateDesktop -bool true
+
+  # 5. Dock optimizations
+  sudo defaults write "$DOCK_PLIST" launchanim -bool false
+  sudo defaults write "$DOCK_PLIST" expose-animation-duration -float 0.0
+  sudo defaults write "$DOCK_PLIST" autohide-time-modifier -float 0.0
+  sudo defaults write "$DOCK_PLIST" autohide-delay -float 0.0
+  sudo defaults write "$DOCK_PLIST" springboard-show-duration -float 0.0
+  sudo defaults write "$DOCK_PLIST" springboard-hide-duration -float 0.0
+
+  # 6. Shadows & Window Manager
+  sudo defaults write "$SCREEN_PLIST" disable-shadow -bool true
+  sudo defaults write "$WM_PLIST" StandardHideWidgets -bool true
+  sudo defaults write "$WM_PLIST" EnableStandardClickToShowDesktop -bool false
+  sudo defaults write "$WM_PLIST" HideDesktop -bool true
+
+  # 7. Write via user domain with proper HOME environment
+  HOME="$USER_HOME" sudo -H -u "$USER_NAME" defaults write NSGlobalDomain AppleInterfaceStyle -string "Dark" 2>/dev/null || true
+  HOME="$USER_HOME" sudo -H -u "$USER_NAME" defaults write NSGlobalDomain AppleInterfaceStyleSwitchesAutomatically -bool false 2>/dev/null || true
+  HOME="$USER_HOME" sudo -H -u "$USER_NAME" defaults write com.apple.universalaccess reduceTransparency -bool true 2>/dev/null || true
+  HOME="$USER_HOME" sudo -H -u "$USER_NAME" defaults write com.apple.universalaccess reduceMotion -bool true 2>/dev/null || true
+  HOME="$USER_HOME" sudo -H -u "$USER_NAME" defaults write com.apple.Accessibility reduceTransparency -bool true 2>/dev/null || true
+  HOME="$USER_HOME" sudo -H -u "$USER_NAME" defaults write com.apple.finder DisableAllAnimations -bool true 2>/dev/null || true
+  HOME="$USER_HOME" sudo -H -u "$USER_NAME" defaults write com.apple.dock launchanim -bool false 2>/dev/null || true
+  HOME="$USER_HOME" sudo -H -u "$USER_NAME" defaults write com.apple.screencapture disable-shadow -bool true 2>/dev/null || true
+
+  sudo chown -R "$USER_NAME":staff "$USER_HOME/Library" 2>/dev/null || true
+  sudo chmod -R 700 "$USER_HOME/Library/Preferences" 2>/dev/null || true
 }
 
-# Apply for target user if home exists
-if [[ -d "$TARGET_HOME" ]]; then
-  echo "- Applying visual optimizations for user $TARGET_USER"
-  sudo -u "$TARGET_USER" bash -c "$(declare -f apply_visual_optimizations); apply_visual_optimizations" 2>/dev/null || true
+# Apply for target user
+write_user_visual_preferences "$TARGET_USER"
+
+# Apply for runner if distinct
+if [[ "$TARGET_USER" != "runner" && -d "/Users/runner" ]]; then
+  write_user_visual_preferences "runner"
+fi
+
+# Apply to User Template for any newly initialized users
+TEMPLATE_DIR="/Library/User Template/Non_localized"
+if [[ -d "$TEMPLATE_DIR" ]]; then
+  sudo mkdir -p "$TEMPLATE_DIR/Library/Preferences"
+  sudo defaults write "$TEMPLATE_DIR/Library/Preferences/.GlobalPreferences.plist" AppleInterfaceStyle -string "Dark" 2>/dev/null || true
+  sudo defaults write "$TEMPLATE_DIR/Library/Preferences/.GlobalPreferences.plist" AppleInterfaceStyleSwitchesAutomatically -bool false 2>/dev/null || true
+  sudo defaults write "$TEMPLATE_DIR/Library/Preferences/com.apple.universalaccess.plist" reduceTransparency -bool true 2>/dev/null || true
+  sudo defaults write "$TEMPLATE_DIR/Library/Preferences/com.apple.universalaccess.plist" reduceMotion -bool true 2>/dev/null || true
+  sudo defaults write "$TEMPLATE_DIR/Library/Preferences/com.apple.finder.plist" DisableAllAnimations -bool true 2>/dev/null || true
+  sudo defaults write "$TEMPLATE_DIR/Library/Preferences/com.apple.dock.plist" launchanim -bool false 2>/dev/null || true
 fi
 
 # Set global system domain defaults
-echo "- Applying global system settings"
-sudo defaults write /Library/Preferences/com.apple.universalaccess reduceTransparency -bool true
-sudo defaults write /Library/Preferences/com.apple.universalaccess reduceMotion -bool true
+echo "- Applying global system visual settings"
+sudo defaults write /Library/Preferences/com.apple.universalaccess reduceTransparency -bool true 2>/dev/null || true
+sudo defaults write /Library/Preferences/com.apple.universalaccess reduceMotion -bool true 2>/dev/null || true
 sudo defaults write /Library/Preferences/.GlobalPreferences AppleInterfaceStyle -string "Dark" 2>/dev/null || true
 sudo defaults write /Library/Preferences/.GlobalPreferences AppleInterfaceStyleSwitchesAutomatically -bool false 2>/dev/null || true
 
@@ -109,36 +145,95 @@ sudo cp /tmp/black.png /Users/Shared/black.png 2>/dev/null || true
 sudo chmod 644 /Users/Shared/black.png 2>/dev/null || true
 
 # ────────────────────────────────────────────────────────────────────
-# Apply wallpaper and appearance for target user
+# Create on-login hook script and LaunchAgent for GUI sessions
+# This ensures that when target user logs into GUI via ARD/VNC,
+# wallpaper and Dark Mode are immediately enforced in their Aqua session.
 # ────────────────────────────────────────────────────────────────────
-echo "- Setting appearance"
+echo "- Installing GUI session on-login optimization hook"
+
+cat << 'EOF' | sudo tee /Users/Shared/apply_rdp_ui.sh >/dev/null
+#!/usr/bin/env bash
+if command -v desktoppr >/dev/null 2>&1; then
+  desktoppr "/Users/Shared/black.png" 2>/dev/null || true
+fi
+osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' 2>/dev/null || true
+EOF
+sudo chmod 755 /Users/Shared/apply_rdp_ui.sh
+
+# User-level LaunchAgent for TARGET_USER
+if [[ -d "$TARGET_HOME" ]]; then
+  sudo mkdir -p "$TARGET_HOME/Library/LaunchAgents"
+  cat << 'EOF' | sudo tee "$TARGET_HOME/Library/LaunchAgents/com.user.rdpoptimizations.plist" >/dev/null
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.user.rdpoptimizations</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/Shared/apply_rdp_ui.sh</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+</dict>
+</plist>
+EOF
+  sudo chown -R "$TARGET_USER":staff "$TARGET_HOME/Library/LaunchAgents" 2>/dev/null || true
+fi
+
+# System-wide LaunchAgent for all GUI logins
+sudo mkdir -p /Library/LaunchAgents
+cat << 'EOF' | sudo tee /Library/LaunchAgents/com.user.rdpoptimizations.plist >/dev/null
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.user.rdpoptimizations</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/Shared/apply_rdp_ui.sh</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+</dict>
+</plist>
+EOF
+sudo chmod 644 /Library/LaunchAgents/com.user.rdpoptimizations.plist 2>/dev/null || true
+
+# ────────────────────────────────────────────────────────────────────
+# Apply wallpaper and appearance immediately to active GUI session
+# ────────────────────────────────────────────────────────────────────
+echo "- Setting appearance on active session"
 
 TARGET_UID="$(id -u "$TARGET_USER" 2>/dev/null || echo "")"
+CONSOLE_USER="$(stat -f '%Su' /dev/console 2>/dev/null || echo "runner")"
+CONSOLE_UID="$(id -u "$CONSOLE_USER" 2>/dev/null || echo "501")"
 
-if [[ -n "$TARGET_UID" && "$TARGET_UID" != "0" ]]; then
-  launchctl asuser "$TARGET_UID" sudo -u "$TARGET_USER" osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' 2>/dev/null || true
+# Execute in active console user session if available
+if [[ -n "$CONSOLE_UID" && "$CONSOLE_UID" != "0" ]]; then
+  launchctl asuser "$CONSOLE_UID" sudo -u "$CONSOLE_USER" /Users/Shared/apply_rdp_ui.sh 2>/dev/null || true
 fi
 
+# Also execute in target user session if already active
+if [[ -n "$TARGET_UID" && "$TARGET_UID" != "0" && "$TARGET_UID" != "$CONSOLE_UID" ]]; then
+  launchctl asuser "$TARGET_UID" sudo -u "$TARGET_USER" /Users/Shared/apply_rdp_ui.sh 2>/dev/null || true
+fi
+
+# Fallback direct calls
 if command -v desktoppr >/dev/null 2>&1; then
-  sudo -u "$TARGET_USER" desktoppr "/Users/Shared/black.png" 2>/dev/null || true
-  if [[ -n "$TARGET_UID" && "$TARGET_UID" != "0" ]]; then
-    launchctl asuser "$TARGET_UID" sudo -u "$TARGET_USER" desktoppr "/Users/Shared/black.png" 2>/dev/null || true
-  fi
+  desktoppr "/Users/Shared/black.png" 2>/dev/null || true
 fi
+osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' 2>/dev/null || true
 
-# Force wallpaper daemon, Dock, Finder, and SystemUIServer reload
+# Restart UI daemons to apply changes
 echo "- Restarting UI daemons to apply changes"
 killall WallpaperAgent 2>/dev/null || true
 killall Dock 2>/dev/null || true
 killall Finder 2>/dev/null || true
 killall SystemUIServer 2>/dev/null || true
 
-# Give daemons time to respawn and apply
-sleep 2
-
-# Re-apply desktoppr for target user after daemon restart
-if command -v desktoppr >/dev/null 2>&1; then
-  echo "- Re-applying wallpaper for user $TARGET_USER"
-  sudo -u "$TARGET_USER" desktoppr "/Users/Shared/black.png" 2>/dev/null || true
-fi
 

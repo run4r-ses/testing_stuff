@@ -3,15 +3,22 @@ set -euo pipefail
 
 echo "* Configuring macOS display resolution"
 
+TARGET_USER="${RDP_USERNAME:-${RUSTDESK_USERNAME:-goldenrecipe}}"
+TARGET_UID="$(id -u "$TARGET_USER" 2>/dev/null || echo "")"
 CONSOLE_USER="$(stat -f '%Su' /dev/console 2>/dev/null || echo "runner")"
 CONSOLE_UID="$(id -u "$CONSOLE_USER" 2>/dev/null || echo "501")"
 
 if command -v displayplacer >/dev/null 2>&1; then
   echo "- Querying display configuration..."
   
+  DISPLAY_LIST=""
   if [[ -n "$CONSOLE_UID" && "$CONSOLE_UID" != "0" ]]; then
-    DISPLAY_LIST="$(launchctl asuser "$CONSOLE_UID" sudo -u "$CONSOLE_USER" displayplacer list 2>/dev/null || displayplacer list 2>/dev/null || true)"
-  else
+    DISPLAY_LIST="$(launchctl asuser "$CONSOLE_UID" sudo -u "$CONSOLE_USER" displayplacer list 2>/dev/null || true)"
+  fi
+  if [[ -z "$DISPLAY_LIST" && -n "$TARGET_UID" && "$TARGET_UID" != "0" ]]; then
+    DISPLAY_LIST="$(launchctl asuser "$TARGET_UID" sudo -u "$TARGET_USER" displayplacer list 2>/dev/null || true)"
+  fi
+  if [[ -z "$DISPLAY_LIST" ]]; then
     DISPLAY_LIST="$(displayplacer list 2>/dev/null || true)"
   fi
   

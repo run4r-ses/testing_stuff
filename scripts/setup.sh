@@ -66,6 +66,25 @@ fi
 # Ensure user is in admin group
 sudo dseditgroup -o edit -a "$USERNAME" -t user admin 2>/dev/null || true
 
+# 1. Set the auto-login user
+sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser "$USERNAME"
+
+# 2. Generate and write the XOR-encoded password file
+sudo python3 -c '
+import sys
+key = [125, 137, 82, 35, 210, 188, 221, 234, 163, 185, 31]
+pw = sys.argv[1].encode("utf-8")
+pad_len = max(12, ((len(pw) + 11) // 12) * 12)
+padded = pw + b"\x00" * (pad_len - len(pw))
+encoded = bytes([b ^ key[i % len(key)] for i, b in enumerate(padded)])
+with open("/etc/kcpassword", "wb") as f:
+    f.write(encoded)
+' "$PASSWORD"
+
+# 3. Secure the password file permissions
+sudo chmod 600 /etc/kcpassword
+sudo chown root:wheel /etc/kcpassword
+
 echo
 echo "- User account details:"
 id "$USERNAME"
