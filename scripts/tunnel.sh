@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-USERNAME="${VNC_USERNAME:-runneradmin}"
-if [[ -z "${VNC_PASSWORD:-}" ]]; then
-  echo "! VNC_PASSWORD environment variable is required"
+USERNAME="${RDP_USERNAME:-${VNC_USERNAME:-goldenrecipe}}"
+PASSWORD="${RDP_PASSWORD:-${VNC_PASSWORD:-}}"
+if [[ -z "$PASSWORD" ]]; then
+  echo "! VNC_PASSWORD or RDP_PASSWORD environment variable is required"
   exit 1
 fi
-PASSWORD="$VNC_PASSWORD"
 
 echo "* Starting noVNC proxy"
 

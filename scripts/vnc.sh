@@ -1,36 +1,31 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-USERNAME="${VNC_USERNAME:-runneradmin}"
-if [[ -z "${VNC_PASSWORD:-}" ]]; then
-  echo "! VNC_PASSWORD environment variable is required"
+USERNAME="${RDP_USERNAME:-${VNC_USERNAME:-goldenrecipe}}"
+PASSWORD="${RDP_PASSWORD:-${VNC_PASSWORD:-}}"
+if [[ -z "$PASSWORD" ]]; then
+  echo "! VNC_PASSWORD or RDP_PASSWORD environment variable is required"
   exit 1
 fi
-PASSWORD="$VNC_PASSWORD"
 ARD="/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart"
 
 echo "* Configuring ARD"
 
-# Configure ARD with immediate remote control without permission prompts
+# Configure ARD with remote control access for target user
 sudo "$ARD" \
   -activate \
   -configure \
   -access -on \
-  -allowAccessFor -allUsers \
+  -allowAccessFor -specifiedUsers \
+  -users "$USERNAME" \
   -privs -all \
-  -setreqperm -reqperm no \
-  -setmenuextra -menuextra no
-
-sudo "$ARD" \
-  -configure \
-  -access -on \
-  -users "$USERNAME,runner" \
-  -privs -all \
+  -clientopts -setvncpw -vncpw "$PASSWORD" \
+  -clientopts -setvnclegacy -vnclegacy yes \
   -setreqperm -reqperm no \
   -setmenuextra -menuextra no \
-  -restart
+  -restart -agent -menu
 
-sleep 5
+sleep 3
 
 echo "- Configuring VNC authentication"
 

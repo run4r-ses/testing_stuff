@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-USERNAME="${VNC_USERNAME:-runneradmin}"
+USERNAME="${RDP_USERNAME:-${VNC_USERNAME:-goldenrecipe}}"
 
 echo "* Bypassing TCC"
 

@@ -9,8 +9,8 @@ jobs:
     timeout-minutes: 370
 
     env:
-      VNC_USERNAME: runneradmin
-      VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
+      VNC_USERNAME: goldenrecipe
+      VNC_PASSWORD: ${{ secrets.VNC_PASSWORD || secrets.RDP_PASSWORD || secrets.RUSTDESK_PASSWORD }}
 
     steps:
       - name: Checkout repository
