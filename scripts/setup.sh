@@ -95,10 +95,7 @@ with open("/etc/kcpassword", "wb") as f:
 sudo chmod 600 /etc/kcpassword
 sudo chown root:wheel /etc/kcpassword
 
-# Restart loginwindow so auto-login executes immediately
-echo "- Restarting loginwindow to trigger GUI auto-login"
-sudo killall loginwindow 2>/dev/null || true
-sleep 3
+# Note: autoLoginUser and kcpassword will automatically authenticate on loginwindow request
 
 echo
 echo "- Console user:"
