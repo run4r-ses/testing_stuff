@@ -187,17 +187,16 @@ for u in [target_user, "runner", "root"]:
 for U in "$TARGET_USER" "runner"; do
   if [[ -d "/Users/$U" ]]; then
     sudo chown -R "$U:staff" "/Users/$U/Library" 2>/dev/null || true
-    sudo chmod -R 700 "/Users/$U/Library/Preferences" 2>/dev/null || true
-    sudo chmod 600 "/Users/$U/Library/Preferences/com.apple.SetupAssistant.plist" 2>/dev/null || true
+    sudo chmod -R 755 "/Users/$U/Library" 2>/dev/null || true
+    sudo chmod 644 "/Users/$U/Library/Preferences/com.apple.SetupAssistant.plist" 2>/dev/null || true
     if [[ -n "$HOST_UUID" ]]; then
-      sudo chmod 600 "/Users/$U/Library/Preferences/ByHost/com.apple.SetupAssistant.$HOST_UUID.plist" 2>/dev/null || true
+      sudo chmod 644 "/Users/$U/Library/Preferences/ByHost/com.apple.SetupAssistant.$HOST_UUID.plist" 2>/dev/null || true
     fi
   fi
 done
 
-# Disable Setup Assistant LaunchAgents across target and console UIDs
+# Disable Setup Assistant LaunchAgents (excluding mbuseragent which is required for login session bootstrap)
 SETUP_AGENTS=(
-  "com.apple.mbuseragent"
   "com.apple.SetupAssistant.launcher"
   "com.apple.CloudConfigurationUI"
 )
@@ -221,8 +220,14 @@ for AGENT in "${SETUP_AGENTS[@]}"; do
   done
 done
 
-# Kill any active Setup Assistant or helper instances
+# Ensure mbuseragent is enabled so loginwindow can cleanly initialize GUI sessions
+sudo launchctl enable "system/com.apple.mbuseragent" 2>/dev/null || true
+for ENTRY in "${TARGET_UIDS[@]}"; do
+  UID_VAL="${ENTRY%%:*}"
+  launchctl enable "gui/$UID_VAL/com.apple.mbuseragent" 2>/dev/null || true
+done
+
+# Kill any active Setup Assistant or CloudConfigurationUI instances (do NOT kill mbuseragent)
 sudo killall "Setup Assistant" 2>/dev/null || true
-sudo killall mbuseragent 2>/dev/null || true
 sudo killall CloudConfigurationUI 2>/dev/null || true
 

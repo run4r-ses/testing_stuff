@@ -83,7 +83,7 @@ while true; do
   fi
 
   # Watchdog: suppress any rogue onboarding / Setup Assistant popups
-  sudo killall "Setup Assistant" mbuseragent CloudConfigurationUI 2>/dev/null || true
+  sudo killall "Setup Assistant" CloudConfigurationUI 2>/dev/null || true
 
   echo "- [$(date '+%Y-%m-%d %H:%M:%S')] Keepalive monitor active (running for ${ELAPSED_MIN}m)"
   sleep 15
