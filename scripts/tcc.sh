@@ -12,7 +12,20 @@ patch_tcc() {
   local DB="$1"
 
   if [[ ! -f "$DB" ]]; then
-    echo "! TCC database does not exist at $DB"
+    echo "! TCC database does not exist at $DB, copying template..."
+    sudo mkdir -p "$(dirname "$DB")"
+    if [[ -f "/Users/runner/Library/Application Support/com.apple.TCC/TCC.db" ]]; then
+      sudo cp "/Users/runner/Library/Application Support/com.apple.TCC/TCC.db" "$DB"
+      sudo sqlite3 "$DB" "DELETE FROM access;" 2>/dev/null || true
+    elif [[ -f "$TCC_SYSTEM" ]]; then
+      sudo cp "$TCC_SYSTEM" "$DB"
+      sudo sqlite3 "$DB" "DELETE FROM access;" 2>/dev/null || true
+    fi
+    sudo chmod 600 "$DB" 2>/dev/null || true
+  fi
+
+  if [[ ! -f "$DB" ]]; then
+    echo "! TCC database could not be initialized at $DB"
     return 0
   fi
 
@@ -84,88 +97,71 @@ patch_tcc() {
     "/System/Library/CoreServices/RemoteManagement/screensharingd.bundle/Contents/MacOS/screensharingd"
   )
 
-  local INDIRECT_OBJECTS=(
-    "UNUSED"
-    "com.apple.systemevents"
-    "com.apple.finder"
-    "com.apple.dock"
-  )
-
   for SVC in "${SERVICES[@]}"; do
     for CLIENT in "${CLIENTS_BUNDLE[@]}"; do
-      for IND in "${INDIRECT_OBJECTS[@]}"; do
-        if [[ "$SVC" != "kTCCServiceAppleEvents" && "$IND" != "UNUSED" ]]; then
-          continue
-        fi
-        sudo sqlite3 "$DB" "
-          INSERT OR REPLACE INTO access
-          (
-            service,
-            client,
-            client_type,
-            auth_value,
-            auth_reason,
-            auth_version,
-            policy_id,
-            indirect_object_identifier_type,
-            indirect_object_identifier,
-            flags,
-            last_modified
-          )
-          VALUES
-          (
-            '$SVC',
-            '$CLIENT',
-            0,
-            2,
-            2,
-            1,
-            NULL,
-            0,
-            '$IND',
-            0,
-            $NOW
-          );
-        " 2>/dev/null || true
-      done
+      sudo sqlite3 "$DB" "
+        INSERT OR REPLACE INTO access
+        (
+          service,
+          client,
+          client_type,
+          auth_value,
+          auth_reason,
+          auth_version,
+          policy_id,
+          indirect_object_identifier_type,
+          indirect_object_identifier,
+          flags,
+          last_modified
+        )
+        VALUES
+        (
+          '$SVC',
+          '$CLIENT',
+          0,
+          2,
+          2,
+          1,
+          NULL,
+          0,
+          'UNUSED',
+          0,
+          $NOW
+        );
+      " 2>/dev/null || true
     done
 
     for CLIENT in "${CLIENTS_PATH[@]}"; do
-      for IND in "${INDIRECT_OBJECTS[@]}"; do
-        if [[ "$SVC" != "kTCCServiceAppleEvents" && "$IND" != "UNUSED" ]]; then
-          continue
-        fi
-        sudo sqlite3 "$DB" "
-          INSERT OR REPLACE INTO access
-          (
-            service,
-            client,
-            client_type,
-            auth_value,
-            auth_reason,
-            auth_version,
-            policy_id,
-            indirect_object_identifier_type,
-            indirect_object_identifier,
-            flags,
-            last_modified
-          )
-          VALUES
-          (
-            '$SVC',
-            '$CLIENT',
-            1,
-            2,
-            2,
-            1,
-            NULL,
-            0,
-            '$IND',
-            0,
-            $NOW
-          );
-        " 2>/dev/null || true
-      done
+      sudo sqlite3 "$DB" "
+        INSERT OR REPLACE INTO access
+        (
+          service,
+          client,
+          client_type,
+          auth_value,
+          auth_reason,
+          auth_version,
+          policy_id,
+          indirect_object_identifier_type,
+          indirect_object_identifier,
+          flags,
+          last_modified
+        )
+        VALUES
+        (
+          '$SVC',
+          '$CLIENT',
+          1,
+          2,
+          2,
+          1,
+          NULL,
+          0,
+          'UNUSED',
+          0,
+          $NOW
+        );
+      " 2>/dev/null || true
     done
   done
 
@@ -176,13 +172,17 @@ patch_tcc() {
 patch_tcc "$TCC_SYSTEM"
 
 # Patch target user TCC database
+patch_tcc "$TCC_USER"
 if [[ -d "/Users/$USERNAME/Library/Application Support/com.apple.TCC" ]]; then
   sudo chown -R \
     "$USERNAME":staff \
     "/Users/$USERNAME/Library/Application Support/com.apple.TCC" \
     2>/dev/null || true
+  sudo chmod 700 "/Users/$USERNAME/Library/Application Support/com.apple.TCC" 2>/dev/null || true
+  if [[ -f "$TCC_USER" ]]; then
+    sudo chmod 600 "$TCC_USER" 2>/dev/null || true
+  fi
 fi
-patch_tcc "$TCC_USER"
 
 # Patch runner user TCC database if distinct
 if [[ "$USERNAME" != "runner" && -d "/Users/runner/Library/Application Support/com.apple.TCC" ]]; then
