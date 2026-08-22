@@ -10,22 +10,37 @@ TCC_USER="/Users/$USERNAME/Library/Application Support/com.apple.TCC/TCC.db"
 
 patch_tcc() {
   local DB="$1"
+  local USER_DIR
+  USER_DIR="$(dirname "$DB")"
 
-  if [[ ! -f "$DB" ]]; then
-    echo "! TCC database does not exist at $DB, copying template..."
-    sudo mkdir -p "$(dirname "$DB")"
-    if [[ -f "/Users/runner/Library/Application Support/com.apple.TCC/TCC.db" ]]; then
-      sudo cp "/Users/runner/Library/Application Support/com.apple.TCC/TCC.db" "$DB"
-      sudo sqlite3 "$DB" "DELETE FROM access;" 2>/dev/null || true
-    elif [[ -f "$TCC_SYSTEM" ]]; then
-      sudo cp "$TCC_SYSTEM" "$DB"
-      sudo sqlite3 "$DB" "DELETE FROM access;" 2>/dev/null || true
-    fi
+  # Ensure the directory exists
+  sudo mkdir -p "$USER_DIR" 2>/dev/null || true
+
+  # If database doesn't exist, create it with standard macOS TCC access table schema
+  if ! sudo test -f "$DB"; then
+    echo "- TCC database not found at $DB, creating database with schema..."
+    sudo sqlite3 "$DB" "
+      CREATE TABLE IF NOT EXISTS access (
+        service TEXT NOT NULL,
+        client TEXT NOT NULL,
+        client_type INTEGER NOT NULL,
+        auth_value INTEGER NOT NULL,
+        auth_reason INTEGER NOT NULL,
+        auth_version INTEGER NOT NULL,
+        csreq BLOB,
+        policy_id INTEGER,
+        indirect_object_identifier_type INTEGER DEFAULT 0,
+        indirect_object_identifier TEXT DEFAULT 'UNUSED',
+        flags INTEGER DEFAULT 0,
+        last_modified INTEGER NOT NULL,
+        PRIMARY KEY (service, client, client_type, indirect_object_identifier)
+      );
+    " 2>/dev/null || true
     sudo chmod 600 "$DB" 2>/dev/null || true
   fi
 
-  if [[ ! -f "$DB" ]]; then
-    echo "! TCC database could not be initialized at $DB"
+  if ! sudo test -f "$DB"; then
+    echo "! Could not initialize TCC database at $DB"
     return 0
   fi
 
@@ -77,6 +92,10 @@ patch_tcc() {
     "com.apple.RemoteDesktopAgent"
     "com.carriez.rustdesk"
     "com.carriez.RustDesk"
+    "com.carriez.RustDesk_service"
+    "com.carriez.RustDesk_server"
+    "com.carriez.rustdesk_service"
+    "com.carriez.rustdesk_server"
   )
 
   local CLIENTS_PATH=(
@@ -93,6 +112,9 @@ patch_tcc() {
     "/tmp/bore"
     "/Applications/RustDesk.app/Contents/MacOS/RustDesk"
     "/Applications/RustDesk.app/Contents/MacOS/rustdesk"
+    "/Applications/RustDesk.app/Contents/MacOS/RustDesk_server"
+    "/Applications/RustDesk.app/Contents/MacOS/RustDesk_service"
+    "/Applications/RustDesk.app"
     "/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/MacOS/ARDAgent"
     "/System/Library/CoreServices/RemoteManagement/screensharingd.bundle/Contents/MacOS/screensharingd"
   )
@@ -165,34 +187,44 @@ patch_tcc() {
     done
   done
 
+  # Fix permissions and ownership for user database
+  if [[ "$DB" != "$TCC_SYSTEM" && -d "$USER_DIR" ]]; then
+    local OWNER
+    OWNER="$(echo "$DB" | sed -E 's|^/Users/([^/]+)/.*|\1|')"
+    if id "$OWNER" >/dev/null 2>&1; then
+      sudo chown -R "$OWNER:staff" "$USER_DIR" 2>/dev/null || true
+      sudo chmod 700 "$USER_DIR" 2>/dev/null || true
+      sudo chmod 600 "$DB" 2>/dev/null || true
+    fi
+  fi
+
   echo "* TCC modification completed for $DB"
 }
 
 # Patch system TCC database
 patch_tcc "$TCC_SYSTEM"
 
-# Patch target user TCC database
-patch_tcc "$TCC_USER"
-if [[ -d "/Users/$USERNAME/Library/Application Support/com.apple.TCC" ]]; then
-  sudo chown -R \
-    "$USERNAME":staff \
-    "/Users/$USERNAME/Library/Application Support/com.apple.TCC" \
-    2>/dev/null || true
-  sudo chmod 700 "/Users/$USERNAME/Library/Application Support/com.apple.TCC" 2>/dev/null || true
-  if [[ -f "$TCC_USER" ]]; then
-    sudo chmod 600 "$TCC_USER" 2>/dev/null || true
+# Patch all user TCC databases in /Users
+for UDIR in /Users/*; do
+  if [[ -d "$UDIR" ]]; then
+    U="$(basename "$UDIR")"
+    if [[ "$U" != "Shared" && "$U" != "Guest" ]]; then
+      patch_tcc "$UDIR/Library/Application Support/com.apple.TCC/TCC.db"
+    fi
   fi
-fi
+done
 
-# Patch runner user TCC database if distinct
-if [[ "$USERNAME" != "runner" && -d "/Users/runner/Library/Application Support/com.apple.TCC" ]]; then
-  patch_tcc "/Users/runner/Library/Application Support/com.apple.TCC/TCC.db"
-fi
+# Ensure explicit target user path is also covered
+patch_tcc "$TCC_USER"
 
 echo
 echo "* Restarting tccd daemon"
 sudo killall -9 tccd 2>/dev/null || true
-sleep 3
+TARGET_UID="$(id -u "$USERNAME" 2>/dev/null || echo "")"
+if [[ -n "$TARGET_UID" && "$TARGET_UID" != "0" ]]; then
+  launchctl asuser "$TARGET_UID" sudo -u "$USERNAME" killall -9 tccd 2>/dev/null || true
+fi
+sleep 2
 
 echo
 echo "- Suppressing Screen Capture alerts"
@@ -208,9 +240,15 @@ for U in "$USERNAME" "runner" "root"; do
   for APP_KEY in \
     "/Applications/RustDesk.app/Contents/MacOS/RustDesk" \
     "/Applications/RustDesk.app/Contents/MacOS/rustdesk" \
+    "/Applications/RustDesk.app/Contents/MacOS/RustDesk_server" \
+    "/Applications/RustDesk.app/Contents/MacOS/RustDesk_service" \
     "/Applications/RustDesk.app" \
     "com.carriez.rustdesk" \
-    "com.carriez.RustDesk"; do
+    "com.carriez.RustDesk" \
+    "com.carriez.RustDesk_service" \
+    "com.carriez.RustDesk_server" \
+    "com.carriez.rustdesk_service" \
+    "com.carriez.rustdesk_server"; do
     sudo defaults write "$PLIST" "$APP_KEY" -date "3024-01-01 00:00:00 +0000" 2>/dev/null || true
   done
 
