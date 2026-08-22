@@ -84,16 +84,5 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 nohup python3 "$SCRIPT_DIR/loopback_keeper.py" > /tmp/loopback_keeper.log 2>&1 &
 echo $! > /tmp/loopback_keeper.pid
 
-# Wait for local loopback keeper to establish session and initialize user GUI
-echo "- Waiting for VNC loopback session to establish..."
-for _ in {1..60}; do
-  if [[ -f /tmp/loopback_ready ]] || grep -q "Local VNC loopback session established!" /tmp/loopback_keeper.log 2>/dev/null; then
-    echo "- VNC loopback session confirmed active!"
-    break
-  fi
-  sleep 1
-done
-
 echo "* Apple Remote Desktop & noVNC configured successfully"
-
 
