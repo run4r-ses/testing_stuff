@@ -56,12 +56,25 @@ async def keep_session():
 
             async with asyncvnc.connect('127.0.0.1', 5900, **connect_kwargs) as client:
                 log_msg(f"Local VNC loopback session established! '{USERNAME}' display active.")
+                try:
+                    with open("/tmp/loopback_ready", "w") as f:
+                        f.write(f"connected:{time.time()}\n")
+                except Exception:
+                    pass
                 while True:
                     await asyncio.sleep(15)
         except (ConnectionRefusedError, OSError) as e:
+            try:
+                os.remove("/tmp/loopback_ready")
+            except OSError:
+                pass
             log_msg(f"Waiting for Screen Sharing server on port 5900 ({e}), retrying in 5s...")
             await asyncio.sleep(5)
         except Exception as e:
+            try:
+                os.remove("/tmp/loopback_ready")
+            except OSError:
+                pass
             log_msg(f"Loopback keeper status: {e}, reconnecting in 5s...")
             await asyncio.sleep(5)
 

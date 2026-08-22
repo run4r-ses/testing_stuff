@@ -26,7 +26,7 @@ jobs:
           echo "- Installing display utilities, RustDesk, tunnel tools, and Python packages"
           brew install --cask desktoppr rustdesk 2>/dev/null || true
           brew tap jakehilborn/jakehilborn 2>/dev/null || true
-          brew install displayplacer bore-cli websockify 2>/dev/null || true
+          brew install displayplacer bore-cli 2>/dev/null || true
 
           # Install Python dependencies across all available Python environments
           echo "- Installing Python dependencies (asyncvnc, websockify)"

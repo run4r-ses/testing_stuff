@@ -12,6 +12,27 @@ fi
 
 echo "* Configuring RustDesk unattended remote access"
 
+# 0. Wait for VNC loopback session to report successful connection before proceeding
+echo "- Waiting for VNC loopback session to report successful connection..."
+LOOPBACK_TIMEOUT=120
+ELAPSED=0
+LOOPBACK_SUCCESS=false
+
+while [[ $ELAPSED -lt $LOOPBACK_TIMEOUT ]]; do
+  if [[ -f /tmp/loopback_ready ]] || grep -q "Local VNC loopback session established!" /tmp/loopback_keeper.log 2>/dev/null; then
+    echo "- VNC loopback connection confirmed! (after ${ELAPSED}s)"
+    LOOPBACK_SUCCESS=true
+    break
+  fi
+  sleep 1
+  ELAPSED=$((ELAPSED + 1))
+done
+
+if [[ "$LOOPBACK_SUCCESS" != "true" ]]; then
+  echo "! Error: VNC loopback session did not establish within ${LOOPBACK_TIMEOUT}s. Aborting RustDesk setup."
+  exit 1
+fi
+
 # 1. Verify RustDesk.app exists
 if [[ ! -d "/Applications/RustDesk.app" ]]; then
   echo "! RustDesk.app not found in /Applications"
