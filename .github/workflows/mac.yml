@@ -25,8 +25,48 @@ jobs:
         run: |
           echo "- Installing display utilities, RustDesk, tunnel tools, and Python packages"
           brew install --cask desktoppr rustdesk 2>/dev/null || true
+          brew tap jakehilborn/jakehilborn 2>/dev/null || true
           brew install displayplacer bore-cli websockify 2>/dev/null || true
-          pip3 install --break-system-packages websockify asyncvnc 2>/dev/null || pip3 install websockify asyncvnc 2>/dev/null || true
+
+          # Install Python dependencies across all available Python environments
+          echo "- Installing Python dependencies (asyncvnc, websockify)"
+          python3 -m pip install --break-system-packages --upgrade pip setuptools wheel 2>/dev/null || true
+          python3 -m pip install --break-system-packages asyncvnc websockify 2>/dev/null || \
+          pip3 install --break-system-packages asyncvnc websockify 2>/dev/null || \
+          python3 -m pip install asyncvnc websockify 2>/dev/null || true
+
+          for py in /opt/homebrew/bin/python3 /usr/local/bin/python3 /usr/bin/python3; do
+            if [[ -x "$py" ]]; then
+              "$py" -m pip install --break-system-packages asyncvnc websockify 2>/dev/null || true
+            fi
+          done
+
+          # Direct fallback for displayplacer if Homebrew tap/install failed
+          if ! command -v displayplacer >/dev/null 2>&1 && [[ ! -x /opt/homebrew/bin/displayplacer ]] && [[ ! -x /usr/local/bin/displayplacer ]]; then
+            echo "- Downloading displayplacer binary fallback from GitHub Releases"
+            ARCH="$(uname -m)"
+            if [[ "$ARCH" == "arm64" || "$ARCH" == "aarch64" ]]; then
+              curl -fsSL "https://github.com/jakehilborn/displayplacer/releases/download/v1.4.0/displayplacer-apple" -o /tmp/displayplacer 2>/dev/null || \
+              curl -fsSL "https://github.com/jakehilborn/displayplacer/releases/latest/download/displayplacer-apple" -o /tmp/displayplacer 2>/dev/null || true
+            else
+              curl -fsSL "https://github.com/jakehilborn/displayplacer/releases/download/v1.4.0/displayplacer-intel" -o /tmp/displayplacer 2>/dev/null || \
+              curl -fsSL "https://github.com/jakehilborn/displayplacer/releases/latest/download/displayplacer-intel" -o /tmp/displayplacer 2>/dev/null || true
+            fi
+
+            if [[ ! -s /tmp/displayplacer ]] && command -v clang >/dev/null 2>&1; then
+              echo "- Compiling displayplacer from source via clang"
+              curl -fsSL "https://raw.githubusercontent.com/jakehilborn/displayplacer/master/src/displayplacer.c" -o /tmp/displayplacer.c 2>/dev/null || \
+              curl -fsSL "https://raw.githubusercontent.com/jakehilborn/displayplacer/master/displayplacer.c" -o /tmp/displayplacer.c 2>/dev/null || true
+              if [[ -f /tmp/displayplacer.c ]]; then
+                clang -framework Foundation -framework CoreGraphics -framework IOKit -framework ApplicationServices -O2 /tmp/displayplacer.c -o /tmp/displayplacer 2>/dev/null || true
+              fi
+            fi
+
+            if [[ -s /tmp/displayplacer ]]; then
+              chmod +x /tmp/displayplacer
+              sudo cp /tmp/displayplacer /usr/local/bin/displayplacer 2>/dev/null || sudo cp /tmp/displayplacer /opt/homebrew/bin/displayplacer 2>/dev/null || true
+            fi
+          fi
 
           # Direct fallback for desktoppr if Homebrew cask failed
           if ! command -v desktoppr >/dev/null 2>&1 && [[ ! -x /opt/homebrew/bin/desktoppr ]] && [[ ! -x /usr/local/bin/desktoppr ]]; then
