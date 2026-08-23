@@ -37,15 +37,15 @@ jobs:
           brew install displayplacer bore-cli 2>/dev/null || true
 
           # Install Python dependencies across all available Python environments
-          echo "- Installing Python dependencies (asyncvnc, websockify)"
+          echo "- Installing Python dependencies (asyncvnc)"
           python3 -m pip install --break-system-packages --upgrade pip setuptools wheel 2>/dev/null || true
-          python3 -m pip install --break-system-packages asyncvnc websockify 2>/dev/null || \
-          pip3 install --break-system-packages asyncvnc websockify 2>/dev/null || \
-          python3 -m pip install asyncvnc websockify 2>/dev/null || true
+          python3 -m pip install --break-system-packages asyncvnc 2>/dev/null || \
+          pip3 install --break-system-packages asyncvnc 2>/dev/null || \
+          python3 -m pip install asyncvnc 2>/dev/null || true
 
           for py in /opt/homebrew/bin/python3 /usr/local/bin/python3 /usr/bin/python3; do
             if [[ -x "$py" ]]; then
-              "$py" -m pip install --break-system-packages asyncvnc websockify 2>/dev/null || true
+              "$py" -m pip install --break-system-packages asyncvnc 2>/dev/null || true
             fi
           done
 
@@ -97,9 +97,6 @@ jobs:
             tar -xzf /tmp/bore.tar.gz -C /tmp/
             sudo cp /tmp/bore /usr/local/bin/bore 2>/dev/null || sudo cp /tmp/bore /opt/homebrew/bin/bore 2>/dev/null || chmod +x /tmp/bore
           fi
-
-          echo "- Pre-cloning noVNC web client"
-          git clone --depth 1 https://github.com/novnc/noVNC.git /Users/Shared/noVNC 2>/dev/null || true
 
       - name: Setup user
         shell: bash
