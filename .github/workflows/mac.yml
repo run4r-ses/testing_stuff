@@ -23,6 +23,7 @@ jobs:
         with:
           authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
           hostname: macos-runner
+          args: --accept-dns=false
 
       - name: Install dependencies
         shell: bash
