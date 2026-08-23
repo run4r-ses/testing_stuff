@@ -11,10 +11,18 @@ jobs:
     env:
       RDP_USERNAME: goldenrecipe
       RDP_PASSWORD: ${{ secrets.RDP_PASSWORD || secrets.RUSTDESK_PASSWORD }}
+      TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+
+      - name: Connect to Tailscale
+        if: env.TAILSCALE_AUTHKEY != ''
+        uses: tailscale/github-action@v4
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+          hostname: macos-runner
 
       - name: Install dependencies
         shell: bash
@@ -23,8 +31,8 @@ jobs:
           HOMEBREW_NO_INSTALL_CLEANUP: 1
           HOMEBREW_NO_ANALYTICS: 1
         run: |
-          echo "- Installing display utilities, RustDesk, tunnel tools, and Python packages"
-          brew install --cask desktoppr rustdesk 2>/dev/null || true
+          echo "- Installing display utilities, tunnel tools, and Python packages"
+          brew install --cask desktoppr 2>/dev/null || true
           brew tap jakehilborn/jakehilborn 2>/dev/null || true
           brew install displayplacer bore-cli 2>/dev/null || true
 
@@ -77,26 +85,6 @@ jobs:
             fi
           fi
 
-          # Direct fallback for RustDesk if Homebrew cask failed
-          if [[ ! -d "/Applications/RustDesk.app" ]]; then
-            echo "- Downloading RustDesk DMG fallback from GitHub Releases"
-            ARCH="$(uname -m)"
-            if [[ "$ARCH" == "arm64" || "$ARCH" == "aarch64" ]]; then
-              DMG_URL="https://github.com/rustdesk/rustdesk/releases/download/1.3.7/rustdesk-1.3.7-aarch64.dmg"
-            else
-              DMG_URL="https://github.com/rustdesk/rustdesk/releases/download/1.3.7/rustdesk-1.3.7-x86_64.dmg"
-            fi
-            curl -fsSL "$DMG_URL" -o /tmp/rustdesk.dmg 2>/dev/null || true
-            if [[ -f /tmp/rustdesk.dmg ]]; then
-              hdiutil attach /tmp/rustdesk.dmg -nobrowse -mountpoint /Volumes/RustDesk 2>/dev/null || true
-              if [[ -d "/Volumes/RustDesk/RustDesk.app" ]]; then
-                sudo cp -R /Volumes/RustDesk/RustDesk.app /Applications/
-              fi
-              hdiutil detach /Volumes/RustDesk 2>/dev/null || true
-              rm -f /tmp/rustdesk.dmg
-            fi
-          fi
-
           # Direct fallback for bore if Homebrew was rate-limited or failed
           if ! command -v bore >/dev/null 2>&1 && [[ ! -x /usr/local/bin/bore ]] && [[ ! -x /opt/homebrew/bin/bore ]]; then
             echo "- Downloading bore binary fallback from GitHub Releases"
@@ -129,15 +117,9 @@ jobs:
         shell: bash
         run: bash scripts/rdp/main.sh
 
-      - name: Configure RustDesk
-        shell: bash
-        run: bash scripts/rustdesk/main.sh
-
       - name: Connection information
         shell: bash
-        run: |
-          bash scripts/rdp/info.sh
-          bash scripts/rustdesk/info.sh
+        run: bash scripts/rdp/info.sh
 
       - name: Monitor session
         shell: bash

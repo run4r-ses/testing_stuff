@@ -62,8 +62,6 @@ patch_tcc() {
     "com.apple.screensharing.agent"
     "com.apple.screensharingd"
     "com.apple.RemoteDesktopAgent"
-    "com.carriez.rustdesk"
-    "com.carriez.RustDesk"
   )
 
   local CLIENTS_PATH=(
@@ -78,8 +76,6 @@ patch_tcc() {
     "/usr/local/bin/bore"
     "/opt/homebrew/bin/bore"
     "/tmp/bore"
-    "/Applications/RustDesk.app/Contents/MacOS/RustDesk"
-    "/Applications/RustDesk.app/Contents/MacOS/rustdesk"
     "/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/MacOS/ARDAgent"
     "/System/Library/CoreServices/RemoteManagement/screensharingd.bundle/Contents/MacOS/screensharingd"
   )
@@ -215,11 +211,11 @@ for U in "$USERNAME" "runner" "root"; do
   PLIST="$PLIST_DIR/ScreenCaptureApprovals.plist"
 
   for APP_KEY in \
-    "/Applications/RustDesk.app/Contents/MacOS/RustDesk" \
-    "/Applications/RustDesk.app/Contents/MacOS/rustdesk" \
-    "/Applications/RustDesk.app" \
-    "com.carriez.rustdesk" \
-    "com.carriez.RustDesk"; do
+    "/System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/MacOS/ARDAgent" \
+    "/System/Library/CoreServices/RemoteManagement/screensharingd.bundle/Contents/MacOS/screensharingd" \
+    "com.apple.screensharing.agent" \
+    "com.apple.screensharingd" \
+    "com.apple.RemoteDesktopAgent"; do
     sudo defaults write "$PLIST" "$APP_KEY" -date "3024-01-01 00:00:00 +0000" 2>/dev/null || true
   done
 
