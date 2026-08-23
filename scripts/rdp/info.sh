@@ -64,6 +64,6 @@ fi
 
 if [[ -z "$TAILSCALE_IP" && -z "$VNC_ENDPOINT" ]]; then
   echo "! No endpoints could be established"
+  echo "*"
 fi
-echo "*"
 echo
