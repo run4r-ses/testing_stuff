@@ -34,6 +34,10 @@ if [[ "$LOOPBACK_SUCCESS" != "true" ]]; then
   echo "! Warning: VNC loopback session was not established within ${LOOPBACK_TIMEOUT}s, proceeding..."
 fi
 
+# Re-apply TCC permissions now that user GUI session is active
+echo "- Ensuring TCC database permissions are applied to user $USERNAME session"
+bash "$SCRIPT_DIR/../tcc.sh" 2>/dev/null || true
+
 # Locate RustDesk binary
 RUSTDESK_BIN="/Applications/RustDesk.app/Contents/MacOS/RustDesk"
 if [[ ! -x "$RUSTDESK_BIN" && -x "/Applications/RustDesk.app/Contents/MacOS/rustdesk" ]]; then
@@ -133,29 +137,23 @@ if [[ -d "/Users/$USERNAME/Library/Preferences/com.carriez.RustDesk" ]]; then
 fi
 
 # 5. Launch RustDesk service and agent in target user GUI session
-echo "- Launching RustDesk service and agent in GUI session for $USERNAME..."
+echo "- Starting RustDesk LaunchDaemon and LaunchAgent for $USERNAME..."
 
-# Ensure target user has passwordless sudo to elevate inside its session
-echo "$USERNAME ALL=(ALL) NOPASSWD: ALL" | sudo tee "/etc/sudoers.d/$USERNAME" >/dev/null
-sudo chmod 0440 "/etc/sudoers.d/$USERNAME" 2>/dev/null || true
+# Ensure system LaunchDaemon is active and enabled
+sudo launchctl enable "system/com.carriez.RustDesk_service" 2>/dev/null || true
+sudo launchctl kickstart -kp "system/com.carriez.RustDesk_service" 2>/dev/null || true
 
-# Unload the system-wide LaunchDaemon so it doesn't route input to the physical console
-sudo launchctl bootout system /Library/LaunchDaemons/com.carriez.RustDesk_service.plist 2>/dev/null || true
-sudo launchctl disable system/com.carriez.RustDesk_service 2>/dev/null || true
-
-# Run the root service inside the target user's virtual GUI session domain
+# Ensure user LaunchAgent is active and kickstarted in the target user GUI session
 if [[ -n "$TARGET_UID" && "$TARGET_UID" != "0" ]]; then
-  nohup launchctl asuser "$TARGET_UID" sudo "$RUSTDESK_BIN" --service > /tmp/rustdesk_service.log 2>&1 &
-else
-  nohup sudo "$RUSTDESK_BIN" --service > /tmp/rustdesk_service.log 2>&1 &
-fi
-sleep 2
-
-# Launch the RustDesk GUI application in the user session
-if [[ -n "$TARGET_UID" && "$TARGET_UID" != "0" ]]; then
+  sudo launchctl enable "gui/$TARGET_UID/com.carriez.RustDesk_server" 2>/dev/null || true
+  sudo launchctl kickstart -kp "gui/$TARGET_UID/com.carriez.RustDesk_server" 2>/dev/null || true
   launchctl asuser "$TARGET_UID" sudo -u "$USERNAME" env HOME="$USER_HOME" open -a /Applications/RustDesk.app 2>/dev/null || true
 else
   sudo -u "$USERNAME" env HOME="$USER_HOME" open -a /Applications/RustDesk.app 2>/dev/null || true
 fi
+sleep 2
+
+# Force tccd reload so all processes immediately pick up Accessibility permissions
+sudo killall -9 tccd 2>/dev/null || true
 
 echo "* RustDesk service configured successfully for user $USERNAME"
