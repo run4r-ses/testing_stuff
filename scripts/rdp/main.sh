@@ -33,7 +33,27 @@ echo "- Ensuring macOS firewall allows incoming remote connections"
 sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off 2>/dev/null || true
 sudo pfctl -d 2>/dev/null || true
 
-# Ensure screensharing daemon is active
+# Configure Screen Sharing preferences for unattended access & High Performance bypass
+echo "- Setting Screen Sharing unattended preferences"
+for plist in \
+  "/Library/Preferences/com.apple.ScreenSharing" \
+  "/Library/Preferences/com.apple.ScreenSharing.agent" \
+  "/Library/Preferences/com.apple.RemoteManagement" \
+  "/Users/$USERNAME/Library/Preferences/com.apple.ScreenSharing" \
+  "/Users/$USERNAME/Library/Preferences/com.apple.ScreenSharing.agent" \
+  "/Users/runner/Library/Preferences/com.apple.ScreenSharing" \
+  "/Users/runner/Library/Preferences/com.apple.ScreenSharing.agent"; do
+  sudo defaults write "$plist" AskToShare -bool false 2>/dev/null || true
+  sudo defaults write "$plist" AcceptUnattendedRequests -bool true 2>/dev/null || true
+  sudo defaults write "$plist" Authentication -int 1 2>/dev/null || true
+  sudo defaults write "$plist" AllowDirectControl -bool true 2>/dev/null || true
+  sudo defaults write "$plist" AskUser -bool false 2>/dev/null || true
+  sudo defaults write "$plist" GuestAccess -bool false 2>/dev/null || true
+  sudo defaults write "$plist" SkipLocalVNC -bool false 2>/dev/null || true
+  sudo defaults write "$plist" BlankScreen -bool false 2>/dev/null || true
+done
+
+# Ensure screensharing daemon is active and reloaded with new preferences
 sudo launchctl kickstart -k system/com.apple.screensharing 2>/dev/null || true
 
 # ────────────────────────────────────────────────────────────────────
