@@ -36,19 +36,6 @@ jobs:
           brew tap jakehilborn/jakehilborn 2>/dev/null || true
           brew install displayplacer bore-cli 2>/dev/null || true
 
-          # Install Python dependencies across all available Python environments
-          echo "- Installing Python dependencies (asyncvnc)"
-          python3 -m pip install --break-system-packages --upgrade pip setuptools wheel 2>/dev/null || true
-          python3 -m pip install --break-system-packages asyncvnc 2>/dev/null || \
-          pip3 install --break-system-packages asyncvnc 2>/dev/null || \
-          python3 -m pip install asyncvnc 2>/dev/null || true
-
-          for py in /opt/homebrew/bin/python3 /usr/local/bin/python3 /usr/bin/python3; do
-            if [[ -x "$py" ]]; then
-              "$py" -m pip install --break-system-packages asyncvnc 2>/dev/null || true
-            fi
-          done
-
           # Direct fallback for displayplacer if Homebrew tap/install failed
           if ! command -v displayplacer >/dev/null 2>&1 && [[ ! -x /opt/homebrew/bin/displayplacer ]] && [[ ! -x /usr/local/bin/displayplacer ]]; then
             echo "- Downloading displayplacer binary fallback from GitHub Releases"
