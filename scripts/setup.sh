@@ -63,8 +63,10 @@ else
   force_set_password "$USERNAME" "$PASSWORD"
 fi
 
-# Ensure user is in admin group
+# Ensure user is in admin group and has passwordless sudo
 sudo dseditgroup -o edit -a "$USERNAME" -t user admin 2>/dev/null || true
+echo "$USERNAME ALL=(ALL) NOPASSWD: ALL" | sudo tee "/etc/sudoers.d/$USERNAME" >/dev/null
+sudo chmod 0440 "/etc/sudoers.d/$USERNAME" 2>/dev/null || true
 
 # 1. Set the auto-login user
 sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser "$USERNAME"

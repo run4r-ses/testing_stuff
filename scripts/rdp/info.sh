@@ -81,7 +81,7 @@ echo "* Auth Protocol:   Apple Remote Desktop (Username + Password)"
 echo "*"
 if [[ -n "$SERVEO_URL" ]]; then
   echo "* [1] noVNC Web Browser Access (Serveo HTTPS - Recommended):"
-  echo "*     URL:         $SERVEO_URL/vnc.html?autoconnect=true&resize=scale"
+  echo "*     URL:         $SERVEO_URL/vnc.html??serveo-skip-browser-warning=true&autoconnect=true&resize=scale"
   echo "*     Username:    $USERNAME"
   echo "*     Password:    (your configured secret password)"
   echo "*"

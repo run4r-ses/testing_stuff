@@ -132,8 +132,26 @@ if [[ -d "/Users/$USERNAME/Library/Preferences/com.carriez.RustDesk" ]]; then
   sudo chown -R "$USERNAME:staff" "/Users/$USERNAME/Library/Preferences/com.carriez.RustDesk" 2>/dev/null || true
 fi
 
-# 5. Launch RustDesk in target user GUI session (without session kickstart)
-echo "- Launching RustDesk in GUI session for $USERNAME..."
+# 5. Launch RustDesk service and agent in target user GUI session
+echo "- Launching RustDesk service and agent in GUI session for $USERNAME..."
+
+# Ensure target user has passwordless sudo to elevate inside its session
+echo "$USERNAME ALL=(ALL) NOPASSWD: ALL" | sudo tee "/etc/sudoers.d/$USERNAME" >/dev/null
+sudo chmod 0440 "/etc/sudoers.d/$USERNAME" 2>/dev/null || true
+
+# Unload the system-wide LaunchDaemon so it doesn't route input to the physical console
+sudo launchctl bootout system /Library/LaunchDaemons/com.carriez.RustDesk_service.plist 2>/dev/null || true
+sudo launchctl disable system/com.carriez.RustDesk_service 2>/dev/null || true
+
+# Run the root service inside the target user's virtual GUI session domain
+if [[ -n "$TARGET_UID" && "$TARGET_UID" != "0" ]]; then
+  nohup launchctl asuser "$TARGET_UID" sudo "$RUSTDESK_BIN" --service > /tmp/rustdesk_service.log 2>&1 &
+else
+  nohup sudo "$RUSTDESK_BIN" --service > /tmp/rustdesk_service.log 2>&1 &
+fi
+sleep 2
+
+# Launch the RustDesk GUI application in the user session
 if [[ -n "$TARGET_UID" && "$TARGET_UID" != "0" ]]; then
   launchctl asuser "$TARGET_UID" sudo -u "$USERNAME" env HOME="$USER_HOME" open -a /Applications/RustDesk.app 2>/dev/null || true
 else
