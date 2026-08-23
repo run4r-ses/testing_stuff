@@ -64,10 +64,6 @@ patch_tcc() {
     "com.apple.RemoteDesktopAgent"
     "com.carriez.rustdesk"
     "com.carriez.RustDesk"
-    "com.carriez.RustDesk_server"
-    "com.carriez.RustDesk_service"
-    "com.carriez.rustdesk_server"
-    "com.carriez.rustdesk_service"
   )
 
   local CLIENTS_PATH=(
@@ -181,7 +177,7 @@ patch_tcc "$TCC_SYSTEM"
 
 # Patch target user TCC database
 USER_TCC_DIR="/Users/$USERNAME/Library/Application Support/com.apple.TCC"
-sudo mkdir -p "$USER_TCC_DIR" 2>/dev/null || true
+sudo mkdir -p "$USER_TCC_DIR"
 
 if [[ ! -f "$TCC_USER" ]]; then
   if [[ -f "/Users/runner/Library/Application Support/com.apple.TCC/TCC.db" ]]; then
@@ -191,12 +187,11 @@ if [[ ! -f "$TCC_USER" ]]; then
   fi
 fi
 
-if [[ -f "$TCC_USER" ]]; then
-  sudo chown -R "$USERNAME:staff" "$USER_TCC_DIR" 2>/dev/null || true
-  sudo chmod 700 "$USER_TCC_DIR" 2>/dev/null || true
-  sudo chmod 600 "$TCC_USER" 2>/dev/null || true
-  patch_tcc "$TCC_USER"
-fi
+sudo chown -R "$USERNAME:staff" "$USER_TCC_DIR" 2>/dev/null || true
+sudo chmod 700 "$USER_TCC_DIR" 2>/dev/null || true
+sudo chmod 600 "$TCC_USER" 2>/dev/null || true
+
+patch_tcc "$TCC_USER"
 
 # Patch runner user TCC database if distinct
 if [[ "$USERNAME" != "runner" && -d "/Users/runner/Library/Application Support/com.apple.TCC" ]]; then

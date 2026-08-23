@@ -58,9 +58,17 @@ else
     sudo dscl . -create "/Users/$USERNAME" UniqueID "$USER_UID"
     sudo dscl . -create "/Users/$USERNAME" PrimaryGroupID 20
     sudo dscl . -create "/Users/$USERNAME" NFSHomeDirectory "/Users/$USERNAME"
-    sudo createhomedir -c -u "$USERNAME" >/dev/null 2>&1 || true
   fi
   force_set_password "$USERNAME" "$PASSWORD"
+fi
+
+# Populate standard home directory from macOS User Template
+if [[ ! -d "/Users/$USERNAME/Desktop" ]]; then
+  echo "- Initializing home directory from User Template for $USERNAME"
+  sudo mkdir -p "/Users/$USERNAME"
+  sudo cp -R "/System/Library/User Template/English.lproj/." "/Users/$USERNAME/" 2>/dev/null || \
+  sudo cp -R "/System/Library/User Template/Non_localized/." "/Users/$USERNAME/" 2>/dev/null || true
+  sudo chown -R "$USERNAME:staff" "/Users/$USERNAME"
 fi
 
 # Ensure user is in admin group and has passwordless sudo
