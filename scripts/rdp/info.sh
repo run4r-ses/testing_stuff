@@ -39,46 +39,31 @@ resolve_bore_endpoint() {
   echo ""
 }
 
-echo "- Resolving tunnel and Tailscale endpoints..."
+echo "- Resolving tunnel and Tailscale endpoints"
 VNC_ENDPOINT="$(resolve_bore_endpoint "/tmp/tunnel.log" "/tmp/tunnel.pid")"
 TAILSCALE_IP="$(tailscale ip -4 2>/dev/null || true)"
 
 echo
-echo "* ==================================================="
-echo "* macOS Screen Sharing & Remote Access Ready"
-echo "* ==================================================="
-echo "* OS Version:      $OS_VERSION"
+echo "* macOS desktop is ready"
+echo "* OS version:      $OS_VERSION"
 echo "* Username:        $USERNAME"
-echo "* Password:        (your configured secret password)"
 echo "*"
 
 if [[ -n "$TAILSCALE_IP" ]]; then
-  echo "* [1] Tailscale High-Performance Mode (Recommended):"
+  echo "* [1] Tailscale connection:"
   echo "*     Tailscale IP: $TAILSCALE_IP"
-  echo "*     Hostname:     macos-runner"
-  echo "*     Port:         5900 (TCP/UDP), 5901 (UDP Video)"
-  echo "*"
-  echo "*     - iShareScreen (iss CLI):"
-  echo "*       iss --host $TAILSCALE_IP -u $USERNAME --alt-session"
-  echo "*"
-  echo "*     - TigerVNC / Native VNC (Direct WireGuard):"
-  echo "*       Server:     $TAILSCALE_IP:5900"
-  echo "*"
-  echo "*     - Mac Screen Sharing App (High Performance):"
-  echo "*       URL:        vnc://$TAILSCALE_IP"
+  echo "*     VNC server:   $TAILSCALE_IP:5900"
   echo "*"
 fi
 
 if [[ -n "$VNC_ENDPOINT" ]]; then
-  echo "* [2] Public VNC Tunnel (TigerVNC Fallback - No Tailscale needed):"
-  echo "*     Direct Host:  $VNC_ENDPOINT"
-  echo "*     URL:          vnc://$VNC_ENDPOINT"
-  echo "*     Username:     $USERNAME"
+  echo "* [2] VNC tunnel:"
+  echo "*     VNC server:         $VNC_ENDPOINT"
   echo "*"
 fi
 
 if [[ -z "$TAILSCALE_IP" && -z "$VNC_ENDPOINT" ]]; then
-  echo "! Warning: No endpoints could be established"
+  echo "! No endpoints could be established"
 fi
-echo "* ==================================================="
+echo "*"
 echo

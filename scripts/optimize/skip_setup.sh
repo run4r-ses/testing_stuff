@@ -194,6 +194,3 @@ for U in "$TARGET_USER" "runner"; do
     fi
   fi
 done
-
-echo "* Onboarding preferences configured successfully"
-
