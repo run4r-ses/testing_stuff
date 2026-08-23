@@ -6,7 +6,7 @@ on:
 jobs:
   macos-rdp:
     runs-on: macos-latest
-    timeout-minutes: 370
+    timeout-minutes: 360
 
     env:
       RDP_USERNAME: goldenrecipe
